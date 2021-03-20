@@ -1,9 +1,11 @@
 const parseMessage = (msg) => ({
-  offset: Number(msg.offset),
-  createdAt: new Date(msg.created_at),
+  client: msg.client,
   topic: msg.topic,
   partition: msg.partition,
+  offset: Number(msg.offset),
   payload: msg.payload,
+  createdAt: new Date(msg.created_at),
+  lockedUntil: new Date(msg.locked_until),
 });
 
 const parseClient = (client) => ({
@@ -95,7 +97,9 @@ module.exports = {
           NEW."partition" AS "partition",
           -1 AS "offset",
           NOW() AS "lock_until"
-        FROM "fq"."clients" AS "t1";
+        FROM "fq"."clients" AS "t1"
+        ON CONFLICT ON CONSTRAINT "locks_pkey"
+        DO NOTHING;
 
         RETURN NEW;
       END;
@@ -142,35 +146,29 @@ module.exports = {
     return parseClient(result.rows[0]);
   },
   get: async (client, clientId = "*", topic = "*") => {
-    const foo = await client.query(`
-      SELECT 
-    `);
-    /*
     const result = await client.query(`
-      UPDATE "fq"."clients" AS "t3"
-      SET "locked_until" = NOW() + INTERVAL '5m'
+      UPDATE "fq"."locks" AS "t2"
+         SET "locked_until" = NOW() + INTERVAL '5m'
       FROM (
-        SELECT "t2".*, "t1".* FROM "fq"."messages" AS "t1"
-        INNER JOIN (
-          SELECT 
-          '${clientId}' AS "client_id"
-        ) AS "t2"
-        ON "t1"."offset" > 0
-        WHERE "t1"."topic" = '${topic}'
-        AND "t1"."offset" > (
-          SELECT "offset" FROM "fq"."clients"
-          WHERE "client_id" = '${clientId}'
-          AND "topic" = '${topic}'
-          AND "locked_until" < NOW()
-          LIMIT 1
-          FOR UPDATE
-        )
-        ORDER BY "t1"."offset" ASC
+        SELECT * 
+        FROM "fq"."locks" AS "t1"
+        INNER JOIN "fq"."messages" AS "t4"
+                ON "t4"."topic" = "t1"."topic"
+               AND "t4"."partition" = "t1"."partition"
+        WHERE "t1"."client" = '${clientId}'
+          AND "t1"."topic" = '${topic}'
+          AND "t1"."locked_until" < NOW()
         LIMIT 1
-      ) AS "messages"
-      WHERE "t3"."client_id" = '${clientId}'
-        AND "t3"."topic" = '${topic}'
-      RETURNING *
+        FOR UPDATE
+      ) AS "t3"
+      RETURNING
+        "t3"."client" AS "client",
+        "t2"."topic" AS "topic",
+        "t2"."partition" AS "partition",
+        "t2"."offset" AS "offset",
+        "t3"."payload" AS "payload",
+        "t3"."created_at" AS "created_at",
+        "t3"."locked_until" AS "locked_until"
     `);
 
     if (!result.rowCount) return null;
@@ -180,17 +178,16 @@ module.exports = {
     return {
       ...message,
       commit: async () => {
-        const result = await client.query(`
-          UPDATE "fq"."clients"
-          SET "offset" = ${message.offset},
-              "locked_until" = NOW() - INTERVAL '1ms'
-          WHERE "client_id" = '${clientId}'
-            AND "topic" = '${topic}'
-          RETURNING *
-        `);
-        return result.rows.map(parseClient).shift();
+        // const result = await client.query(`
+        //   UPDATE "fq"."clients"
+        //   SET "offset" = ${message.offset},
+        //       "locked_until" = NOW() - INTERVAL '1ms'
+        //   WHERE "client_id" = '${clientId}'
+        //     AND "topic" = '${topic}'
+        //   RETURNING *
+        // `);
+        // return result.rows.map(parseClient).shift();
       },
     };
-    */
   },
 };

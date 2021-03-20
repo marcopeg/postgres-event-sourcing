@@ -301,6 +301,18 @@ describe("Schema", () => {
       expect(Number(r4.rows[0].count)).toBe(12);
     });
 
+    test("it should get the first document of a single partition", async () => {
+      await schemaPartitions.registerClient(client, "c1", "t1");
+      await schemaPartitions.put(client, { c: 1 }, "t1", "p1");
+      await schemaPartitions.put(client, { c: 2 }, "t1", "p1");
+
+      const m1 = await schemaPartitions.get(client, "c1", "t1");
+      console.log(m1);
+
+      const m2 = await schemaPartitions.get(client, "c1", "t1");
+      console.log(m2);
+    });
+
     // test("It should NOT return messages without registering a client", async () => {
     //   await schemaPartitions.put(client, "t1", "p1", { c: 1 });
     //   await schemaPartitions.put(client, "t1", "p1", { c: 2 });

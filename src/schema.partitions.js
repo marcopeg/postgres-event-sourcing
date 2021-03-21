@@ -148,9 +148,16 @@ module.exports = {
   get: async (client, clientId = "*", topic = "*") => {
     const result = await client.query(`
       UPDATE "fq"."locks" AS "t2"
-         SET "locked_until" = NOW() + INTERVAL '5m'
+         SET "locked_until" = NOW() + INTERVAL '5m',
+             "offset" = "t3"."offset"
       FROM (
-        SELECT * 
+        SELECT
+          "t1"."client" AS "client",
+          "t4"."topic" AS "topic",
+          "t4"."partition" AS "partition",
+          "t4"."offset" AS "offset",
+          "t4"."payload" AS "payload",
+          "t4"."created_at" AS "created_at"
         FROM "fq"."locks" AS "t1"
         INNER JOIN "fq"."messages" AS "t4"
                 ON "t4"."topic" = "t1"."topic"
@@ -161,6 +168,9 @@ module.exports = {
         LIMIT 1
         FOR UPDATE
       ) AS "t3"
+      WHERE "t2"."client" = "t3"."client"
+        AND "t2"."topic" = "t3"."topic"
+        AND "t2"."partition" = "t3"."partition"
       RETURNING
         "t3"."client" AS "client",
         "t2"."topic" AS "topic",
@@ -168,7 +178,7 @@ module.exports = {
         "t2"."offset" AS "offset",
         "t3"."payload" AS "payload",
         "t3"."created_at" AS "created_at",
-        "t3"."locked_until" AS "locked_until"
+        "t2"."locked_until" AS "locked_until"
     `);
 
     if (!result.rowCount) return null;

@@ -303,14 +303,22 @@ describe("Schema", () => {
 
     test("it should get the first document of a single partition", async () => {
       await schemaPartitions.registerClient(client, "c1", "t1");
-      await schemaPartitions.put(client, { c: 1 }, "t1", "p1");
-      await schemaPartitions.put(client, { c: 2 }, "t1", "p1");
+      await schemaPartitions.put(client, { c: "1" }, "t1", "p1");
+      await schemaPartitions.put(client, { c: "2" }, "t1", "p1");
+      await schemaPartitions.put(client, { c: "1b" }, "t1", "p1b");
+      await schemaPartitions.put(client, { c: "2b" }, "t1", "p1b");
 
+      // should read from p1-c'1'
       const m1 = await schemaPartitions.get(client, "c1", "t1");
-      console.log(m1);
+      console.log(m1.payload);
 
+      // should read from p1b-c'1b'
       const m2 = await schemaPartitions.get(client, "c1", "t1");
-      console.log(m2);
+      console.log(m2.payload);
+
+      // no messages should be available until a commit happens
+      const m3 = await schemaPartitions.get(client, "c1", "t1");
+      console.log(m3);
     });
 
     // test("It should NOT return messages without registering a client", async () => {

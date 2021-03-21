@@ -14,6 +14,14 @@ const parseClient = (client) => ({
   updatedAt: new Date(client.updated_at),
 });
 
+const parseLock = (lock) => ({
+  client: lock.client,
+  topic: lock.topic,
+  partition: lock.partition,
+  offset: Number(lock.offset),
+  lockedUntil: new Date(lock.locked_until),
+});
+
 module.exports = {
   reset: async (client) => {
     await client.query('DROP SCHEMA IF EXISTS "fq" CASCADE;');
@@ -55,7 +63,7 @@ module.exports = {
         "client" VARCHAR(10),
         "topic" VARCHAR(50),
         "partition" VARCHAR(50),
-        "offset" BIGINT DEFAULT -1,
+        "offset" BIGINT DEFAULT 0,
         "locked_until" TIMESTAMP DEFAULT NOW() - INTERVAL '1ms' NOT NULL,
         PRIMARY KEY ("client", "topic", "partition")
       );
@@ -95,7 +103,7 @@ module.exports = {
           "t1"."id" AS "client", 
           NEW."topic" AS "topic",
           NEW."partition" AS "partition",
-          -1 AS "offset",
+          0 AS "offset",
           NOW() AS "lock_until"
         FROM "fq"."clients" AS "t1"
         ON CONFLICT ON CONSTRAINT "locks_pkey"
@@ -134,7 +142,7 @@ module.exports = {
           "t2"."id" AS "client",
           "t1"."topic" AS "topic",
           "t1"."partition" AS "partition",
-          ${fromStart ? '-1 AS "offset"' : '"t1"."offset"'},
+          ${fromStart ? '0 AS "offset"' : '"t1"."offset"'},
           NOW() AS "locked_until"
         FROM "fq"."partitions" AS "t1"
         LEFT JOIN "upsert_client" AS "t2" ON 1 = 1
@@ -148,8 +156,7 @@ module.exports = {
   get: async (client, clientId = "*", topic = "*") => {
     const result = await client.query(`
       UPDATE "fq"."locks" AS "t2"
-         SET "locked_until" = NOW() + INTERVAL '5m',
-             "offset" = "t3"."offset"
+         SET "locked_until" = NOW() + INTERVAL '5m'
       FROM (
         SELECT
           "t1"."client" AS "client",
@@ -162,6 +169,7 @@ module.exports = {
         INNER JOIN "fq"."messages" AS "t4"
                 ON "t4"."topic" = "t1"."topic"
                AND "t4"."partition" = "t1"."partition"
+               AND "t4"."offset" > "t1"."offset"
         WHERE "t1"."client" = '${clientId}'
           AND "t1"."topic" = '${topic}'
           AND "t1"."locked_until" < NOW()
@@ -175,7 +183,7 @@ module.exports = {
         "t3"."client" AS "client",
         "t2"."topic" AS "topic",
         "t2"."partition" AS "partition",
-        "t2"."offset" AS "offset",
+        "t3"."offset" AS "offset",
         "t3"."payload" AS "payload",
         "t3"."created_at" AS "created_at",
         "t2"."locked_until" AS "locked_until"
@@ -188,15 +196,16 @@ module.exports = {
     return {
       ...message,
       commit: async () => {
-        // const result = await client.query(`
-        //   UPDATE "fq"."clients"
-        //   SET "offset" = ${message.offset},
-        //       "locked_until" = NOW() - INTERVAL '1ms'
-        //   WHERE "client_id" = '${clientId}'
-        //     AND "topic" = '${topic}'
-        //   RETURNING *
-        // `);
-        // return result.rows.map(parseClient).shift();
+        const result = await client.query(`
+          UPDATE "fq"."locks"
+          SET "offset" = ${message.offset},
+              "locked_until" = NOW()
+          WHERE "client" = '${message.client}'
+            AND "topic" = '${message.topic}'
+            AND "partition" = '${message.partition}'
+          RETURNING *
+        `);
+        return parseLock(result.rows[0]);
       },
     };
   },

@@ -270,7 +270,7 @@ describe("Schema", () => {
       await schemaPartitions.put(client, { c: 0 });
       await schemaPartitions.registerClient(client, "c1", true);
       const r1 = await client.query(`SELECT * FROM "fq"."locks"`);
-      expect(Number(r1.rows[0].offset)).toBe(-1);
+      expect(Number(r1.rows[0].offset)).toBe(0);
     });
 
     it("should upsert new partitions locks on existing clients after posting a new message", async () => {
@@ -310,30 +310,165 @@ describe("Schema", () => {
 
       // should read from p1-c'1'
       const m1 = await schemaPartitions.get(client, "c1", "t1");
-      console.log(m1.payload);
+      expect(m1.payload.c).toBe("1");
+      expect(m1.offset).toBe(1);
+      expect(m1.client).toBe("c1");
+      expect(m1.topic).toBe("t1");
+      expect(m1.partition).toBe("p1");
 
       // should read from p1b-c'1b'
       const m2 = await schemaPartitions.get(client, "c1", "t1");
-      console.log(m2.payload);
+      expect(m2.payload.c).toBe("1b");
+      expect(m2.offset).toBe(3);
+      expect(m2.client).toBe("c1");
+      expect(m2.topic).toBe("t1");
+      expect(m2.partition).toBe("p1b");
 
       // no messages should be available until a commit happens
       const m3 = await schemaPartitions.get(client, "c1", "t1");
-      console.log(m3);
+      expect(m3).toBe(null);
+
+      // commit the first message, should confirm the message offset as
+      // last known offset in the lock table:
+      const m1c = await m1.commit();
+      expect(m1c.offset).toEqual(m1.offset);
+
+      // commiting the first message should unlock the next offset within
+      // the same partition "p1"
+      const m4 = await schemaPartitions.get(client, "c1", "t1");
+      expect(m4.payload.c).toBe("2");
+      expect(m4.offset).toBe(2);
+      expect(m4.client).toBe("c1");
+      expect(m4.topic).toBe("t1");
+      expect(m4.partition).toBe("p1");
+
+      // no messages should be available now, as "p1" is blocked
+      // by "m4" that still hasn't commit, and "p1b" is blocked
+      // by "m2" still
+      const m5 = await schemaPartitions.get(client, "c1", "t1");
+      expect(m5).toBe(null);
+
+      // commit the message in the othe partition:
+      await Promise.all([m2.commit(), m4.commit()]);
+
+      // At this point, "p1" should be consumed to the end by "c1":
+      // (there should be only one row that connects "locks" and "partitions"
+      // where the "offset" is matching)
+      const r1 = await client.query(`
+        SELECT * FROM "fq"."locks" AS "t1"
+        WHERE "t1"."client" = 'c1'
+          AND "t1"."topic" = 't1'
+          AND "t1"."partition" = 'p1'
+          AND "t1"."offset" = (
+            SELECT "offset" FROM "fq"."partitions" AS "t2"
+            WHERE "t2"."topic" = 't1'
+              AND "t2"."partition" = 'p1'
+          )
+      `);
+      expect(r1.rowCount).toBe(1);
+
+      // Consumes the last message:
+      const m6 = await schemaPartitions.get(client, "c1", "t1");
+      await m6.commit();
+
+      const r2 = await client.query(`
+        SELECT * FROM "fq"."locks" AS "t1"
+        JOIN "fq"."partitions" AS "t2"
+          ON "t1"."topic" = "t2"."topic"
+         AND "t1"."partition" = "t2"."partition"
+         AND "t1"."offset" = "t2"."offset"
+      `);
+      expect(r2.rowCount).toBe(2);
+
+      // A new client should be able to start over
+      await schemaPartitions.registerClient(client, "c2", "t1");
+      const m7 = await schemaPartitions.get(client, "c2", "t1");
+      expect(m7.partition).toEqual(m1.partition);
+      expect(m7.offset).toEqual(m1.offset);
+      expect(m7.payload.c).toEqual(m1.payload.c);
     });
 
-    // test("It should NOT return messages without registering a client", async () => {
-    //   await schemaPartitions.put(client, "t1", "p1", { c: 1 });
-    //   await schemaPartitions.put(client, "t1", "p1", { c: 2 });
-    //   await schemaPartitions.put(client, "t1", "p1", { c: 3 });
+    test("It should NOT return messages without registering a client", async () => {
+      await schemaPartitions.put(client, { c: "1" }, "t1", "p1");
+      await schemaPartitions.put(client, { c: "2" }, "t1", "p1");
+      await schemaPartitions.put(client, { c: "3" }, "t1", "p1");
 
-    //   // The first read should fail as there is no client registered
-    //   const m1 = await schemaPartitions.get(client, "c1", "t1");
-    //   expect(m1).toBe(null);
+      // The first read should fail as there is no client registered
+      const m1 = await schemaPartitions.get(client, "c1", "t1");
+      expect(m1).toBe(null);
 
-    //   // The second read should work as the client is set up
-    //   // await schemaLocks.registerClient(client, "c1", "t1");
-    //   // const m2 = await schemaLocks.get(client, "c1", "t1");
-    //   // expect(m2.payload.c).toBe(1);
-    // });
+      // The second read should work as the client is set up
+      await schemaPartitions.registerClient(client, "c1", "t1");
+      const m2 = await schemaPartitions.get(client, "c1", "t1");
+      expect(m2.payload.c).toBe("1");
+    });
+
+    test("it should work with an uneven amount of messages in different partitions", async () => {
+      await schemaPartitions.put(client, { c: "1" }, "t1", "p1");
+      await schemaPartitions.put(client, { c: "2" }, "t1", "p1");
+      await schemaPartitions.put(client, { c: "3" }, "t1", "p1");
+      await schemaPartitions.put(client, { c: "1b" }, "t1", "p1b");
+
+      await schemaPartitions.registerClient(client, "c1", "t1");
+
+      const m1 = await schemaPartitions.get(client, "c1", "t1");
+      const m2 = await schemaPartitions.get(client, "c1", "t1");
+      await Promise.all([m1.commit(), m2.commit()]);
+
+      const m3 = await schemaPartitions.get(client, "c1", "t1");
+      await m3.commit();
+
+      const m4 = await schemaPartitions.get(client, "c1", "t1");
+      await m4.commit();
+
+      const r2 = await client.query(`
+        SELECT * FROM "fq"."locks" AS "t1"
+        JOIN "fq"."partitions" AS "t2"
+          ON "t1"."topic" = "t2"."topic"
+         AND "t1"."partition" = "t2"."partition"
+         AND "t1"."offset" = "t2"."offset"
+      `);
+      expect(r2.rowCount).toBe(2);
+    });
+
+    test("It should entirely consume a topic even if there are messages from different topics in the log", async () => {
+      await schemaPartitions.put(client, { c: "t1-1" }, "t1");
+      await schemaPartitions.put(client, { c: "t2-1" }, "t2");
+      await schemaPartitions.put(client, { c: "t1-2" }, "t1");
+      await schemaPartitions.put(client, { c: "t2-2" }, "t2");
+      await schemaPartitions.put(client, { c: "t1-3" }, "t1");
+
+      await schemaPartitions.registerClient(client, "c1", "t1");
+
+      // Start consuming topic "t1"
+
+      const m1 = await schemaPartitions.get(client, "c1", "t1");
+      await m1.commit();
+      expect(m1.payload.c).toBe("t1-1");
+
+      const m2 = await schemaPartitions.get(client, "c1", "t1");
+      await m2.commit();
+      expect(m2.payload.c).toBe("t1-2");
+
+      const m3 = await schemaPartitions.get(client, "c1", "t1");
+      await m3.commit();
+      expect(m3.payload.c).toBe("t1-3");
+
+      const m4 = await schemaPartitions.get(client, "c1", "t1");
+      expect(m4).toBe(null);
+
+      // Start consuming topic "t2"
+
+      const m5 = await schemaPartitions.get(client, "c1", "t2");
+      await m5.commit();
+      expect(m5.payload.c).toBe("t2-1");
+
+      const m6 = await schemaPartitions.get(client, "c1", "t2");
+      await m6.commit();
+      expect(m6.payload.c).toBe("t2-2");
+
+      const m7 = await schemaPartitions.get(client, "c1", "t2");
+      expect(m7).toBe(null);
+    });
   });
 });

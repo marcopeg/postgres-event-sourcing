@@ -73,7 +73,7 @@ module.exports = {
     // after appending a new message, the relative topic/partition
     // line is upserted and updated with the latest available offset
     await client.query(`
-      CREATE FUNCTION "fq"."on_insert_on_messages"()
+      CREATE OR REPLACE FUNCTION "fq"."on_insert_on_messages"()
       RETURNS trigger 
       AS $on_insert_on_messages$
       BEGIN
@@ -88,12 +88,13 @@ module.exports = {
       END;
       $on_insert_on_messages$ LANGUAGE plpgsql;
 
+      DROP TRIGGER IF EXISTS "fq_on_insert_on_messages" ON "fq"."messages";
       CREATE TRIGGER "fq_on_insert_on_messages" AFTER INSERT ON "fq"."messages"
       FOR EACH ROW EXECUTE PROCEDURE "fq"."on_insert_on_messages"();
     `);
 
     await client.query(`
-      CREATE FUNCTION "fq"."on_insert_on_partitions"()
+      CREATE OR REPLACE FUNCTION "fq"."on_insert_on_partitions"()
       RETURNS trigger
       AS $on_insert_on_partitions$
       BEGIN
@@ -113,6 +114,7 @@ module.exports = {
       END;
       $on_insert_on_partitions$ LANGUAGE plpgsql;
 
+      DROP TRIGGER IF EXISTS "fq_on_insert_on_partitions" ON "fq"."partitions";
       CREATE TRIGGER "fq_on_insert_on_partitions" AFTER INSERT OR UPDATE ON "fq"."partitions"
       FOR EACH ROW EXECUTE PROCEDURE "fq"."on_insert_on_partitions"();
     `);

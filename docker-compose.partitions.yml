@@ -45,7 +45,26 @@ services:
       NODE_ENV: development
       PGSTRING: postgres://postgres:${POSTGRES_PASSWORD:-postgres}@postgres:5432/postgres
     working_dir: /usr/src/app
-    entrypoint: ["node", "src/dkr.partitions.js"]
+    entrypoint: ["node", "src/dkr.partitions.producer.js"]
     deploy:
       mode: replicated
-      replicas: 10
+      replicas: 3
+
+  consumer:
+    image: node:12.20
+    depends_on:
+      postgres:
+        condition: service_healthy
+    volumes:
+      - .docker-data/node_modules:/usr/src/app/node_modules:cached
+      - ./package.json:/usr/src/app/package.json:delegated
+      - ./package-lock.json:/usr/src/app/package-lock.json:delegated
+      - ./src:/usr/src/app/src:delegated
+    environment:
+      NODE_ENV: development
+      PGSTRING: postgres://postgres:${POSTGRES_PASSWORD:-postgres}@postgres:5432/postgres
+    working_dir: /usr/src/app
+    entrypoint: ["node", "src/dkr.partitions.consumer.js"]
+    deploy:
+      mode: replicated
+      replicas: 3

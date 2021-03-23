@@ -6,6 +6,8 @@ const schemaTopic = require("./schema.topic");
 const schemaLocks = require("./schema.locks");
 const schemaPartitions = require("./schema.partitions");
 
+const sleep = (t) => new Promise((r) => setTimeout(r, t));
+
 describe("Schema", () => {
   // Connect to PG
   const client = new Client({ connectionString: process.env.PGSTRING });
@@ -237,26 +239,22 @@ describe("Schema", () => {
       expect(r1.rowCount).toBe(2);
     });
 
-    it("should register a client and generate the related locks from existing partitions using the latest available offset", async () => {
+    it("7k22: should register a client and generate the related locks from existing partitions using the latest available offset", async () => {
       await schemaPartitions.put(client, { c: 0 }, "t1");
       await schemaPartitions.put(client, { c: 1 }, "t1", "p1");
       await schemaPartitions.put(client, { c: 2 }, "t1", "p2");
       await schemaPartitions.put(client, { c: 3 }, "t1", "p3");
-
       const c1 = await schemaPartitions.registerClient(client, "c1");
       expect(c1.id).toBe("c1");
       expect(c1.createdAt).toEqual(c1.updatedAt);
-
       // Should be idempotent, upserting the same client multiple time should
       // have no effects on the stored data, just modify the updatedAt info
       const c1b = await schemaPartitions.registerClient(client, "c1");
       expect(c1.id).toEqual(c1b.id);
       expect(c1b.updatedAt.getTime()).toBeGreaterThan(c1b.createdAt.getTime());
-
       // Should generate 4 locks, one per partition:
       const r1 = await client.query(`SELECT COUNT(*) FROM "fq"."locks"`);
       expect(Number(r1.rows[0].count)).toBe(4);
-
       const r2 = await client.query(`
         SELECT * FROM "fq"."locks"
         WHERE "client" = 'c1'
@@ -266,11 +264,32 @@ describe("Schema", () => {
       expect(Number(r2.rows[0].offset)).toBe(4);
     });
 
-    it("should register a client and generate the related locks from existing partitions starting from the beginning of the available history", async () => {
-      await schemaPartitions.put(client, { c: 0 });
+    it("7f899: should register a client and generate the related locks from existing partitions starting from the beginning of the available history", async () => {
+      const m1 = await schemaPartitions.put(client, { c: 0 });
+      await sleep(250);
+      const m2 = await schemaPartitions.put(client, { c: 1 });
+      await sleep(250);
+      const m3 = await schemaPartitions.put(client, { c: 2 });
+
       await schemaPartitions.registerClient(client, "c1", true);
-      const r1 = await client.query(`SELECT * FROM "fq"."locks"`);
-      expect(Number(r1.rows[0].offset)).toBe(-1);
+      await schemaPartitions.registerClient(client, "c2", false);
+      await schemaPartitions.registerClient(client, "c3", m2.createdAt);
+
+      const r1 = await client.query(
+        `SELECT * FROM "fq"."locks" WHERE "client" = 'c1'`
+      );
+      expect(Number(r1.rows[0].offset)).toBe(m1.offset - 1);
+
+      const r2 = await client.query(
+        `SELECT * FROM "fq"."locks" WHERE "client" = 'c2'`
+      );
+      expect(Number(r2.rows[0].offset)).toBe(m3.offset);
+
+      const r3 = await client.query(
+        `SELECT * FROM "fq"."locks" WHERE "client" = 'c3'`
+      );
+      // console.log(r3.rows);
+      // expect(Number(r2.rows[0].offset)).toBe(m3.offset);
     });
 
     it("should upsert new partitions locks on existing clients after posting a new message", async () => {
@@ -302,7 +321,7 @@ describe("Schema", () => {
     });
 
     test("it should get the first document of a single partition", async () => {
-      await schemaPartitions.registerClient(client, "c1", "t1");
+      await schemaPartitions.registerClient(client, "c1");
       await schemaPartitions.put(client, { c: "1" }, "t1", "p1");
       await schemaPartitions.put(client, { c: "2" }, "t1", "p1");
       await schemaPartitions.put(client, { c: "1b" }, "t1", "p1b");
@@ -381,7 +400,7 @@ describe("Schema", () => {
       expect(r2.rowCount).toBe(2);
 
       // A new client should be able to start over
-      await schemaPartitions.registerClient(client, "c2", "t1");
+      await schemaPartitions.registerClient(client, "c2", true);
       const m7 = await schemaPartitions.get(client, "c2", "t1");
       expect(m7.partition).toEqual(m1.partition);
       expect(m7.offset).toEqual(m1.offset);
@@ -398,7 +417,7 @@ describe("Schema", () => {
       expect(m1).toBe(null);
 
       // The second read should work as the client is set up
-      await schemaPartitions.registerClient(client, "c1", "t1");
+      await schemaPartitions.registerClient(client, "c1", true);
       const m2 = await schemaPartitions.get(client, "c1", "t1");
       expect(m2.payload.c).toBe("1");
     });
@@ -409,7 +428,7 @@ describe("Schema", () => {
       await schemaPartitions.put(client, { c: "3" }, "t1", "p1");
       await schemaPartitions.put(client, { c: "1b" }, "t1", "p1b");
 
-      await schemaPartitions.registerClient(client, "c1", "t1");
+      await schemaPartitions.registerClient(client, "c1", true);
 
       const m1 = await schemaPartitions.get(client, "c1", "t1");
       const m2 = await schemaPartitions.get(client, "c1", "t1");
@@ -438,7 +457,7 @@ describe("Schema", () => {
       await schemaPartitions.put(client, { c: "t2-2" }, "t2");
       await schemaPartitions.put(client, { c: "t1-3" }, "t1");
 
-      await schemaPartitions.registerClient(client, "c1", "t1");
+      await schemaPartitions.registerClient(client, "c1", true);
 
       // Start consuming topic "t1"
 
@@ -470,5 +489,24 @@ describe("Schema", () => {
       const m7 = await schemaPartitions.get(client, "c1", "t2");
       expect(m7).toBe(null);
     });
+
+    // test("kim", async () => {
+    //   await schemaPartitions.put(client, "{}", "t1", "p1");
+    //   await schemaPartitions.put(client, "{}", "t1", "p2");
+    //   await schemaPartitions.put(client, "{}", "t1", "p1");
+    //   await schemaPartitions.put(client, "{}", "t1", "p2");
+
+    //   await schemaPartitions.registerClient(client, "c1", true);
+
+    //   const m1 = await schemaPartitions.get(client, "c1", "t1");
+    //   await m1.commit();
+    //   console.log(m1);
+
+    //   const m2 = await schemaPartitions.get(client, "c1", "t1");
+    //   console.log(m2);
+
+    //   const m3 = await schemaPartitions.get(client, "c1", "t1");
+    //   console.log(m3);
+    // });
   });
 });

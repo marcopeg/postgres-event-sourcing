@@ -33,8 +33,8 @@ module.exports = {
     await client.query(`
       CREATE TABLE IF NOT EXISTS "fq"."messages" (
       "offset" BIGSERIAL,
-      "topic" VARCHAR(50),
-      "partition" VARCHAR(50),
+      "topic" VARCHAR(50) DEFAULT '*',
+      "partition" VARCHAR(50) DEFAULT '*',
       "payload" JSONB DEFAULT '{}',
       "created_at" TIMESTAMP DEFAULT NOW() NOT NULL,
       PRIMARY KEY ("offset")
@@ -54,6 +54,7 @@ module.exports = {
     await client.query(`
       CREATE TABLE IF NOT EXISTS "fq"."clients" (
         "id" VARCHAR(32),
+        "start_at" TIMESTAMP DEFAULT NOW() NOT NULL,
         "created_at" TIMESTAMP DEFAULT NOW() NOT NULL,
         "updated_at" TIMESTAMP DEFAULT NOW() NOT NULL,
         PRIMARY KEY ("id")
@@ -115,6 +116,55 @@ module.exports = {
       FOR EACH ROW EXECUTE PROCEDURE "fq"."on_insert_on_messages"();
     `);
 
+    // SIDE EFFECT:
+    // after upserting a client, all the locks should be re-upserted so to
+    // keep the correct matrix of client/topic/partition locks
+    await client.query(`
+      CREATE OR REPLACE FUNCTION "fq"."on_insert_or_update_on_clients"()
+      RETURNS trigger
+      AS $on_insert_or_update_on_clients$
+      BEGIN
+
+        INSERT INTO "fq"."locks"
+        SELECT
+          NEW."id" AS "client", 
+          "t1"."topic" AS "topic",
+          "t1"."partition" AS "partition",
+          COALESCE(
+            (
+              SELECT "t2"."offset" - 1 AS "offset" FROM "fq"."messages" AS "t2"
+              WHERE "t2"."topic" = "t1"."topic"
+                AND "t2"."partition" = "t1"."partition"
+                AND "t2"."created_at" >= NEW."start_at"
+              ORDER BY "t2"."offset" ASC
+              LIMIT 1
+            ),
+          (
+              SELECT "t2"."offset" - 1 AS "offset" FROM "fq"."messages" AS "t2"
+              WHERE "t2"."topic" = "t1"."topic"
+                AND "t2"."partition" = "t1"."partition"
+              ORDER BY "t2"."offset" DESC
+              LIMIT 1
+            )	
+          ) AS "offset",
+          "t1"."offset" AS "last_offset",
+          NOW() AS "locked_until"
+        FROM "fq"."partitions" AS "t1"
+        ON CONFLICT ON CONSTRAINT "locks_pkey"
+        DO UPDATE
+        SET "offset" = EXCLUDED."offset",
+            "last_offset" = EXCLUDED."last_offset"
+        ;
+
+        RETURN NEW;
+      END;
+      $on_insert_or_update_on_clients$ LANGUAGE plpgsql;
+
+      DROP TRIGGER IF EXISTS "fq_on_insert_or_update_on_clients" ON "fq"."clients";
+      CREATE TRIGGER "fq_on_insert_or_update_on_clients" AFTER INSERT ON "fq"."clients"
+      FOR EACH ROW EXECUTE PROCEDURE "fq"."on_insert_or_update_on_clients"();
+    `);
+
     await client.query(`
       CREATE OR REPLACE FUNCTION "fq"."on_insert_on_partitions"()
       RETURNS trigger
@@ -152,30 +202,23 @@ module.exports = {
     return parseMessage(result.rows[0]);
   },
   registerClient: async (client, clientId = "*", fromStart = false) => {
+    let startAt = "";
+    switch (fromStart) {
+      case true:
+        startAt = `'0001-01-01'`;
+        break;
+      case false:
+        startAt = "NOW()";
+        break;
+      default:
+        startAt = `'${fromStart.toISOString()}'`;
+    }
     const result = await client.query(`
-      WITH
-      "upsert_client" AS (
-        INSERT INTO "fq"."clients"
-        ("id") VALUES ('${clientId}')
-        ON CONFLICT ON CONSTRAINT "clients_pkey"
-        DO UPDATE SET "updated_at" = NOW()
-        RETURNING *
-      ),
-      "upsert_locks" AS (
-        INSERT INTO "fq"."locks"
-        SELECT 
-          "t2"."id" AS "client",
-          "t1"."topic" AS "topic",
-          "t1"."partition" AS "partition",
-          ${fromStart ? '-1 AS "offset"' : '"t1"."offset"'},
-          0 AS "last_offset",
-          NOW() AS "locked_until"
-        FROM "fq"."partitions" AS "t1"
-        LEFT JOIN "upsert_client" AS "t2" ON 1 = 1
-        ON CONFLICT ON CONSTRAINT "locks_pkey"
-        DO NOTHING
-      )
-      SELECT * FROM "upsert_client"
+      INSERT INTO "fq"."clients"
+      ("id", "start_at") VALUES ('${clientId}', ${startAt})
+      ON CONFLICT ON CONSTRAINT "clients_pkey"
+      DO UPDATE SET "updated_at" = NOW(), "start_at" = EXCLUDED."start_at"
+      RETURNING *
     `);
     return parseClient(result.rows[0]);
   },

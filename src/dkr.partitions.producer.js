@@ -19,7 +19,9 @@ const boot = async () => {
     console.log(`Runing batch ${i + 1}/${batchSerial}...`);
     const promises = [];
     for (let j = 0; j < batchParallel; j++) {
-      promises.push(schema.put(client, {}));
+      const randomPartition = Math.floor(Math.random() * 9);
+      // const randomPartition = 1;
+      promises.push(schema.put(client, {}, "*", `p${randomPartition}`));
     }
     try {
       await Promise.all(promises);

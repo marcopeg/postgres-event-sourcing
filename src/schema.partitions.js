@@ -68,8 +68,27 @@ module.exports = {
         "offset" BIGINT DEFAULT -1,
         "last_offset" BIGINT DEFAULT 0,
         "locked_until" TIMESTAMP DEFAULT NOW() - INTERVAL '1ms' NOT NULL,
+        "created_at" TIMESTAMP DEFAULT NOW() NOT NULL,
+        "updated_at" TIMESTAMP DEFAULT NOW() NOT NULL,
         PRIMARY KEY ("client", "topic", "partition")
       );
+    `);
+
+    // SIDE EFFECT:
+    // automatically bump "updated_at" when modifying a lock
+    await client.query(`
+      CREATE OR REPLACE FUNCTION "fq"."before_update_locks_table"()
+      RETURNS trigger 
+      AS $before_update_locks_table$
+      BEGIN
+        NEW.updated_at = NOW();
+        RETURN NEW;
+      END;
+      $before_update_locks_table$ LANGUAGE plpgsql;
+
+      DROP TRIGGER IF EXISTS "fq_before_update_locks_table" ON "fq"."locks";
+      CREATE TRIGGER "fq_before_update_locks_table" BEFORE UPDATE ON "fq"."locks"
+      FOR EACH ROW EXECUTE PROCEDURE "fq"."before_update_locks_table"();  
     `);
 
     // SIDE EFFECT:

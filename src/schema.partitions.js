@@ -36,7 +36,7 @@ module.exports = {
       "topic" VARCHAR(50) DEFAULT '*',
       "partition" VARCHAR(50) DEFAULT '*',
       "payload" JSONB DEFAULT '{}',
-      "created_at" TIMESTAMP DEFAULT NOW() NOT NULL,
+      "created_at" TIMESTAMP WITH TIME ZONE DEFAULT NOW() NOT NULL,
       PRIMARY KEY ("offset")
       );
     `);
@@ -46,7 +46,7 @@ module.exports = {
       "topic" VARCHAR(50),
       "partition" VARCHAR(50),
       "offset" BIGINT,
-      "created_at" TIMESTAMP DEFAULT NOW() NOT NULL,
+      "created_at" TIMESTAMP WITH TIME ZONE DEFAULT NOW() NOT NULL,
       PRIMARY KEY ("topic", "partition")
       );
     `);
@@ -55,8 +55,8 @@ module.exports = {
       CREATE TABLE IF NOT EXISTS "fq"."clients" (
         "id" VARCHAR(32),
         "start_at" TIMESTAMP DEFAULT NOW() NOT NULL,
-        "created_at" TIMESTAMP DEFAULT NOW() NOT NULL,
-        "updated_at" TIMESTAMP DEFAULT NOW() NOT NULL,
+        "created_at" TIMESTAMP WITH TIME ZONE DEFAULT NOW() NOT NULL,
+        "updated_at" TIMESTAMP WITH TIME ZONE DEFAULT NOW() NOT NULL,
         PRIMARY KEY ("id")
       );
     `);
@@ -68,9 +68,9 @@ module.exports = {
         "partition" VARCHAR(50),
         "offset" BIGINT DEFAULT -1,
         "last_offset" BIGINT DEFAULT 0,
-        "locked_until" TIMESTAMP DEFAULT NOW() - INTERVAL '1ms' NOT NULL,
-        "created_at" TIMESTAMP DEFAULT NOW() NOT NULL,
-        "updated_at" TIMESTAMP DEFAULT NOW() NOT NULL,
+        "locked_until" TIMESTAMP WITH TIME ZONE DEFAULT NOW() - INTERVAL '1ms' NOT NULL,
+        "created_at" TIMESTAMP WITH TIME ZONE DEFAULT NOW() NOT NULL,
+        "updated_at" TIMESTAMP WITH TIME ZONE DEFAULT NOW() NOT NULL,
         PRIMARY KEY ("client", "topic", "partition")
       );
     `);
@@ -140,7 +140,7 @@ module.exports = {
               LIMIT 1
             ),
           (
-              SELECT "t2"."offset" - 1 AS "offset" FROM "fq"."messages" AS "t2"
+              SELECT "t2"."offset" AS "offset" FROM "fq"."messages" AS "t2"
               WHERE "t2"."topic" = "t1"."topic"
                 AND "t2"."partition" = "t1"."partition"
               ORDER BY "t2"."offset" DESC
@@ -181,7 +181,7 @@ module.exports = {
           NOW() AS "lock_until"
         FROM "fq"."clients" AS "t1"
         ON CONFLICT ON CONSTRAINT "locks_pkey"
-        DO NOTHING;
+        DO UPDATE SET "last_offset" = NEW."offset";
 
         RETURN NEW;
       END;
@@ -213,13 +213,14 @@ module.exports = {
       default:
         startAt = `'${fromStart.toISOString()}'`;
     }
-    const result = await client.query(`
+    const registerSql = `
       INSERT INTO "fq"."clients"
       ("id", "start_at") VALUES ('${clientId}', ${startAt})
       ON CONFLICT ON CONSTRAINT "clients_pkey"
       DO UPDATE SET "updated_at" = NOW(), "start_at" = EXCLUDED."start_at"
       RETURNING *
-    `);
+    `;
+    const result = await client.query(registerSql);
     return parseClient(result.rows[0]);
   },
   get: async (client, clientId = "*", topic = "*") => {

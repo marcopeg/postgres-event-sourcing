@@ -239,57 +239,56 @@ describe("Schema", () => {
       expect(r1.rowCount).toBe(2);
     });
 
-    it("7k22: should register a client and generate the related locks from existing partitions using the latest available offset", async () => {
-      await schemaPartitions.put(client, { c: 0 }, "t1");
-      await schemaPartitions.put(client, { c: 1 }, "t1", "p1");
-      await schemaPartitions.put(client, { c: 2 }, "t1", "p2");
-      await schemaPartitions.put(client, { c: 3 }, "t1", "p3");
-      const c1 = await schemaPartitions.registerClient(client, "c1");
-      expect(c1.id).toBe("c1");
-      expect(c1.createdAt).toEqual(c1.updatedAt);
-      // Should be idempotent, upserting the same client multiple time should
-      // have no effects on the stored data, just modify the updatedAt info
-      const c1b = await schemaPartitions.registerClient(client, "c1");
-      expect(c1.id).toEqual(c1b.id);
-      expect(c1b.updatedAt.getTime()).toBeGreaterThan(c1b.createdAt.getTime());
-      // Should generate 4 locks, one per partition:
-      const r1 = await client.query(`SELECT COUNT(*) FROM "fq"."locks"`);
-      expect(Number(r1.rows[0].count)).toBe(4);
-      const r2 = await client.query(`
-        SELECT * FROM "fq"."locks"
-        WHERE "client" = 'c1'
-          AND "topic" = 't1'
-          AND "partition" = 'p3'
-      `);
-      expect(Number(r2.rows[0].offset)).toBe(4);
+    it("should register a client since the beginning of time", async () => {
+      const m1 = await schemaPartitions.put(client, { c: 0 });
+      await schemaPartitions.registerClient(client, "c1", true);
+      const m1g = await schemaPartitions.get(client, "c1");
+      expect(m1.topic).toEqual(m1g.topic);
+      expect(m1.partition).toEqual(m1g.partition);
+      expect(m1.offset).toEqual(m1g.offset);
     });
 
-    it("7f899: should register a client and generate the related locks from existing partitions starting from the beginning of the available history", async () => {
-      const m1 = await schemaPartitions.put(client, { c: 0 });
-      await sleep(250);
-      const m2 = await schemaPartitions.put(client, { c: 1 });
-      await sleep(250);
-      const m3 = await schemaPartitions.put(client, { c: 2 });
+    it("should register a client since the current point in time", async () => {
+      await schemaPartitions.put(client, { c: 0 });
+      await schemaPartitions.registerClient(client, "c1");
+      const m1 = await schemaPartitions.get(client, "c1");
+      expect(m1).toBe(null);
 
-      await schemaPartitions.registerClient(client, "c1", true);
-      await schemaPartitions.registerClient(client, "c2", false);
-      await schemaPartitions.registerClient(client, "c3", m2.createdAt);
+      await schemaPartitions.put(client, { c: 2 });
+      const m2 = await schemaPartitions.get(client, "c1");
+      expect(m2.offset).toBe(2);
+    });
 
-      const r1 = await client.query(
-        `SELECT * FROM "fq"."locks" WHERE "client" = 'c1'`
-      );
-      expect(Number(r1.rows[0].offset)).toBe(m1.offset - 1);
+    it("should register a client since a specific point in time", async () => {
+      await schemaPartitions.put(client, { c: 0 });
+      const p2 = await schemaPartitions.put(client, { c: 1 });
+      const p3 = await schemaPartitions.put(client, { c: 2 });
 
-      const r2 = await client.query(
-        `SELECT * FROM "fq"."locks" WHERE "client" = 'c2'`
-      );
-      expect(Number(r2.rows[0].offset)).toBe(m3.offset);
+      // Register the client since the POT when the second message
+      // entered the queue
+      await schemaPartitions.registerClient(client, "c1", p2.createdAt);
+      const m1 = await schemaPartitions.get(client, "c1");
+      expect(m1.topic).toEqual(p2.topic);
+      expect(m1.partition).toEqual(p2.partition);
+      expect(m1.offset).toEqual(p2.offset);
+      await m1.commit();
 
-      const r3 = await client.query(
-        `SELECT * FROM "fq"."locks" WHERE "client" = 'c3'`
-      );
-      // console.log(r3.rows);
-      // expect(Number(r2.rows[0].offset)).toBe(m3.offset);
+      // Get the following message:
+      const m2 = await schemaPartitions.get(client, "c1");
+      expect(m2.topic).toEqual(p3.topic);
+      expect(m2.partition).toEqual(p3.partition);
+      expect(m2.offset).toEqual(p3.offset);
+
+      // Add a new message into the topic while the last message
+      // is still open, just simulating some shitty condition:
+      const p4 = await schemaPartitions.put(client, { c: 3 });
+      await m2.commit();
+
+      // It should get such a message:
+      const m3 = await schemaPartitions.get(client, "c1");
+      expect(m3.topic).toEqual(p4.topic);
+      expect(m3.partition).toEqual(p4.partition);
+      expect(m3.offset).toEqual(p4.offset);
     });
 
     it("should upsert new partitions locks on existing clients after posting a new message", async () => {
@@ -489,24 +488,5 @@ describe("Schema", () => {
       const m7 = await schemaPartitions.get(client, "c1", "t2");
       expect(m7).toBe(null);
     });
-
-    // test("kim", async () => {
-    //   await schemaPartitions.put(client, "{}", "t1", "p1");
-    //   await schemaPartitions.put(client, "{}", "t1", "p2");
-    //   await schemaPartitions.put(client, "{}", "t1", "p1");
-    //   await schemaPartitions.put(client, "{}", "t1", "p2");
-
-    //   await schemaPartitions.registerClient(client, "c1", true);
-
-    //   const m1 = await schemaPartitions.get(client, "c1", "t1");
-    //   await m1.commit();
-    //   console.log(m1);
-
-    //   const m2 = await schemaPartitions.get(client, "c1", "t1");
-    //   console.log(m2);
-
-    //   const m3 = await schemaPartitions.get(client, "c1", "t1");
-    //   console.log(m3);
-    // });
   });
 });

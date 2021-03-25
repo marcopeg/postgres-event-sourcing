@@ -291,6 +291,9 @@ describe("Schema", () => {
       expect(m3.offset).toEqual(p4.offset);
     });
 
+    // TODO
+    it("should roll back the subscription to a specific point in time when re-registering a client", () => {});
+
     it("should upsert new partitions locks on existing clients after posting a new message", async () => {
       await schemaPartitions.registerClient(client, "c1");
       await schemaPartitions.registerClient(client, "c2");

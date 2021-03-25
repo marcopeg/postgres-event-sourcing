@@ -1,8 +1,7 @@
 const { Client } = require("pg");
 const schema = require("./schema.partitions");
 
-const clientId = process.env.HOSTNAME || "*";
-const batchSerial = process.env.BATCH_SERIAL || 1;
+const clientId = process.env.CLIENT_ID || process.env.HOSTNAME || "*";
 const batchParallel = process.env.BATCH_PARALLEL || 10;
 
 const boot = async () => {
@@ -44,7 +43,7 @@ const boot = async () => {
     // Get parallel messages
     const messages = [];
     for (let j = 0; j < batchParallel; j++) {
-      messages.push(await schema.get(client, clientId));
+      messages.push(schema.get(client, clientId));
     }
 
     // Committing the messages

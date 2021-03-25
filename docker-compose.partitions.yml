@@ -31,7 +31,7 @@ services:
     working_dir: /usr/src/app
     entrypoint: ["npm", "install"]
 
-  producer:
+  reset:
     image: node:12.20
     depends_on:
       postgres:
@@ -45,12 +45,9 @@ services:
       NODE_ENV: development
       PGSTRING: postgres://postgres:${POSTGRES_PASSWORD:-postgres}@postgres:5432/postgres
     working_dir: /usr/src/app
-    entrypoint: ["node", "src/dkr.partitions.producer.js"]
-    deploy:
-      mode: replicated
-      replicas: 3
+    entrypoint: ["node", "src/dkr.partitions.reset.js"]
 
-  consumer:
+  producer:
     image: node:12.20
     depends_on:
       postgres:
@@ -63,6 +60,51 @@ services:
     environment:
       NODE_ENV: development
       PGSTRING: postgres://postgres:${POSTGRES_PASSWORD:-postgres}@postgres:5432/postgres
+      MAX_PARTITIONS: 40
+      BATCH_SERIAL: 15
+      BATCH_PARALLEL: 100
+    working_dir: /usr/src/app
+    entrypoint: ["node", "src/dkr.partitions.producer.js"]
+    deploy:
+      mode: replicated
+      replicas: 3
+
+  consumer1:
+    image: node:12.20
+    depends_on:
+      postgres:
+        condition: service_healthy
+    volumes:
+      - .docker-data/node_modules:/usr/src/app/node_modules:cached
+      - ./package.json:/usr/src/app/package.json:delegated
+      - ./package-lock.json:/usr/src/app/package-lock.json:delegated
+      - ./src:/usr/src/app/src:delegated
+    environment:
+      NODE_ENV: development
+      PGSTRING: postgres://postgres:${POSTGRES_PASSWORD:-postgres}@postgres:5432/postgres
+      CLIENT_ID: c1
+      BATCH_PARALLEL: 10
+    working_dir: /usr/src/app
+    entrypoint: ["node", "src/dkr.partitions.consumer.js"]
+    deploy:
+      mode: replicated
+      replicas: 3
+
+  consumer2:
+    image: node:12.20
+    depends_on:
+      postgres:
+        condition: service_healthy
+    volumes:
+      - .docker-data/node_modules:/usr/src/app/node_modules:cached
+      - ./package.json:/usr/src/app/package.json:delegated
+      - ./package-lock.json:/usr/src/app/package-lock.json:delegated
+      - ./src:/usr/src/app/src:delegated
+    environment:
+      NODE_ENV: development
+      PGSTRING: postgres://postgres:${POSTGRES_PASSWORD:-postgres}@postgres:5432/postgres
+      CLIENT_ID: c2
+      BATCH_PARALLEL: 10
     working_dir: /usr/src/app
     entrypoint: ["node", "src/dkr.partitions.consumer.js"]
     deploy:

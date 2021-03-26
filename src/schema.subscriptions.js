@@ -212,9 +212,59 @@ module.exports = {
       FOR EACH ROW EXECUTE PROCEDURE "fq"."on_insert_on_partitions"();
     `);
 
-    // await client.query(`
+    await client.query(`
+      CREATE OR REPLACE FUNCTION "fq"."get"(
+        PAR_client VARCHAR,
+	      PAR_topic VARCHAR
+      )
+      RETURNS TABLE (
+        "client" VARCHAR(32),
+        "offset" BIGINT,
+        "topic" VARCHAR(50),
+        "partition" VARCHAR(50),
+        "payload" JSONB,
+        "created_at" TIMESTAMP WITH TIME ZONE,
+        "locked_until" TIMESTAMP WITH TIME ZONE
+      )
+      AS $fn$
+      DECLARE
+        VAR_r RECORD;
+      BEGIN
 
-    // `)
+        RETURN QUERY
+        WITH
+        "apply_lock" AS (
+          UPDATE "fq"."locks" AS "t1"
+          SET "locked_until" = NOW() + INTERVAL '5m'
+          FROM (
+            SELECT * FROM "fq"."locks" AS "t2"
+            WHERE "t2"."client" = PAR_client
+              AND "t2"."topic" = PAR_topic
+              AND "t2"."locked_until" < NOW()
+              AND "t2"."offset" < "last_offset"
+            LIMIT 1
+            FOR UPDATE
+          ) AS t2
+          WHERE "t1"."client" = "t2"."client"
+            AND "t1"."topic" = "t2"."topic"
+            AND "t1"."partition" = "t2"."partition"
+          RETURNING "t2".*
+        )
+        SELECT 
+          (SELECT "t3"."client" FROM "apply_lock" AS "t3") AS "client",
+          "t1".*,
+          (SELECT "t3"."locked_until" FROM "apply_lock" AS "t3") AS "locked_until"
+        FROM "fq"."messages" AS "t1"
+        WHERE "t1"."topic" = (SELECT "t3"."topic" FROM "apply_lock" AS "t3")
+          AND "t1"."partition" = (SELECT "t3"."partition" FROM "apply_lock" AS "t3")
+          AND "t1"."offset" > ANY (SELECT "t3"."offset" FROM "apply_lock" AS "t3")
+        ORDER BY "offset" ASC
+        LIMIT 1;
+
+      END;
+      $fn$
+      LANGUAGE plpgsql;
+    `);
   },
   put: async (client, payload, topic = "*", partition = "*") => {
     const result = await client.query(`
@@ -254,36 +304,9 @@ module.exports = {
     return parseClient(result.rows[0]);
   },
   get: async (client, clientId = "*", topic = "*") => {
-    const result = await client.query(`
-      WITH
-      "apply_lock" AS (
-        UPDATE "fq"."locks" AS "t1"
-        SET "locked_until" = NOW() + INTERVAL '5m'
-        FROM (
-          SELECT * FROM "fq"."locks"
-          WHERE "client" = '${clientId}'
-            AND "topic" = '${topic}'
-            AND "locked_until" < NOW()
-            AND "offset" < "last_offset"
-          LIMIT 1
-          FOR UPDATE
-        ) AS t2
-        WHERE "t1"."client" = "t2"."client"
-          AND "t1"."topic" = "t2"."topic"
-          AND "t1"."partition" = "t2"."partition"
-        RETURNING "t2".*
-      )
-      SELECT 
-        (SELECT "client" FROM "apply_lock") AS "client",
-        "t1".*,
-        (SELECT "locked_until" FROM "apply_lock") AS "locked_until"
-      FROM "fq"."messages" AS "t1"
-      WHERE "topic" = (SELECT "topic" FROM "apply_lock")
-        AND "partition" = (SELECT "partition" FROM "apply_lock")
-        AND "offset" > ANY (SELECT "offset" FROM "apply_lock")
-      ORDER BY "offset" ASC
-      LIMIT 1;
-    `);
+    const result = await client.query(
+      `SELECT * FROM "fq"."get"('${clientId}', '${topic}')`
+    );
 
     if (!result.rowCount) return null;
 

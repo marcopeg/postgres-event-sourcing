@@ -507,7 +507,6 @@ describe("Schema", () => {
       await schemaSubscriptions.put(client, { c: 1 }, "t2", "p1");
 
       // Should upsert the locks for "c1/t1"
-      await schemaSubscriptions.registerClient(client, "c1");
       await schemaSubscriptions.registerSubscription(client, "c1", "t1");
 
       const r1 = await client.query(`
@@ -528,15 +527,12 @@ describe("Schema", () => {
 
     it("should be idempotent in registering clients and subscriptions", async () => {
       await Promise.all([
-        schemaSubscriptions.registerClient(client, "c1"),
-        schemaSubscriptions.registerClient(client, "c1"),
         schemaSubscriptions.registerSubscription(client, "c1", "t1"),
         schemaSubscriptions.registerSubscription(client, "c1", "t1"),
       ]);
     });
 
     it("should add the locks for active subscriptions after adding new messages", async () => {
-      await schemaSubscriptions.registerClient(client, "c1");
       await schemaSubscriptions.registerSubscription(client, "c1", "t1");
       await schemaSubscriptions.put(client, { c: 1 }, "t1", "p1");
       await schemaSubscriptions.put(client, { c: 1 }, "t1", "p2");
@@ -551,7 +547,6 @@ describe("Schema", () => {
     it("should subscribe to an existing topic since the beginning of time", async () => {
       const m1 = await schemaSubscriptions.put(client, { c: 1 }, "t1", "p1");
 
-      await schemaSubscriptions.registerClient(client, "c1");
       await schemaSubscriptions.registerSubscription(client, "c1", "t1", true);
 
       const r1 = await schemaSubscriptions.get(client, "c1", "t1");
@@ -563,7 +558,6 @@ describe("Schema", () => {
     it("should subscribe to an existing topic since the end of time", async () => {
       await schemaSubscriptions.put(client, { c: 1 }, "t1", "p1");
 
-      await schemaSubscriptions.registerClient(client, "c1");
       await schemaSubscriptions.registerSubscription(client, "c1", "t1");
 
       const r1 = await schemaSubscriptions.get(client, "c1", "t1");
@@ -581,7 +575,6 @@ describe("Schema", () => {
       const m2 = await schemaSubscriptions.put(client, { c: 2 }, "t1", "p1");
       const m3 = await schemaSubscriptions.put(client, { c: 3 }, "t1", "p1");
 
-      await schemaSubscriptions.registerClient(client, "c1");
       await schemaSubscriptions.registerSubscription(
         client,
         "c1",
@@ -601,7 +594,6 @@ describe("Schema", () => {
       const m2 = await schemaSubscriptions.put(client, { c: 2 }, "t1", "p1");
       const m3 = await schemaSubscriptions.put(client, { c: 3 }, "t1", "p1");
 
-      await schemaSubscriptions.registerClient(client, "c1");
       await schemaSubscriptions.registerSubscription(client, "c1", "t1");
 
       const r1 = await schemaSubscriptions.get(client, "c1", "t1");
@@ -648,6 +640,12 @@ describe("Schema", () => {
       expect(r6.partition).toEqual(m2.partition);
       expect(r6.offset).toEqual(m2.offset);
       expect(r6.payload.c).toEqual(m2.payload.c);
+    });
+
+    it("should not be able to get messages without a subscription", async () => {
+      await schemaSubscriptions.put(client, { c: 1 }, "t1", "p1");
+      const r1 = await schemaSubscriptions.get(client, "c1", "t1");
+      expect(r1).toBe(null);
     });
   });
 });

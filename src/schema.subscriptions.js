@@ -51,15 +51,6 @@ module.exports = {
     `);
 
     await client.query(`
-      CREATE TABLE IF NOT EXISTS "fq"."clients" (
-        "id" VARCHAR(32),
-        "created_at" TIMESTAMP WITH TIME ZONE DEFAULT NOW() NOT NULL,
-        "updated_at" TIMESTAMP WITH TIME ZONE DEFAULT NOW() NOT NULL,
-        PRIMARY KEY ("id")
-      );
-    `);
-
-    await client.query(`
       CREATE TABLE IF NOT EXISTS "fq"."subscriptions" (
         "client" VARCHAR(32),
         "topic" VARCHAR(50),
@@ -220,6 +211,10 @@ module.exports = {
       CREATE TRIGGER "fq_on_insert_on_partitions" AFTER INSERT OR UPDATE ON "fq"."partitions"
       FOR EACH ROW EXECUTE PROCEDURE "fq"."on_insert_on_partitions"();
     `);
+
+    // await client.query(`
+
+    // `)
   },
   put: async (client, payload, topic = "*", partition = "*") => {
     const result = await client.query(`
@@ -229,16 +224,6 @@ module.exports = {
       RETURNING *
     `);
     return parseMessage(result.rows[0]);
-  },
-  registerClient: async (client, clientId = "*") => {
-    const registerSql = `
-      INSERT INTO "fq"."clients" VALUES ('${clientId}')
-      ON CONFLICT ON CONSTRAINT "clients_pkey"
-      DO UPDATE SET "updated_at" = NOW()
-      RETURNING *
-    `;
-    const result = await client.query(registerSql);
-    return parseClient(result.rows[0]);
   },
   registerSubscription: async (
     client,

@@ -5,6 +5,7 @@ const schemaClient = require("./schema.client");
 const schemaTopic = require("./schema.topic");
 const schemaLocks = require("./schema.locks");
 const schemaPartitions = require("./schema.partitions");
+const schemaSubscriptions = require("./schema.subscriptions");
 
 const sleep = (t) => new Promise((r) => setTimeout(r, t));
 
@@ -491,5 +492,62 @@ describe("Schema", () => {
       const m7 = await schemaPartitions.get(client, "c1", "t2");
       expect(m7).toBe(null);
     });
+  });
+
+  describe("SUBSCRIPTIONS", () => {
+    beforeEach(async () => {
+      await schemaSubscriptions.reset(client);
+      await schemaSubscriptions.create(client);
+    });
+
+    it("should create locks after a subscription is activated", async () => {
+      // Should create some partitions definition
+      await schemaSubscriptions.put(client, { c: 1 }, "t1", "p1");
+      await schemaSubscriptions.put(client, { c: 2 }, "t1", "p2");
+      await schemaSubscriptions.put(client, { c: 1 }, "t2", "p1");
+
+      // Should upsert the locks for "c1/t1"
+      await schemaSubscriptions.registerClient(client, "c1");
+      await schemaSubscriptions.registerSubscription(client, "c1", "t1");
+
+      const r1 = await client.query(`
+        SELECT * FROM "fq"."locks"
+        WHERE "topic" = 't1' AND "client" = 'c1'
+      `);
+      expect(r1.rowCount).toBe(2);
+
+      // Should upsert the locks for "c1/t2"
+      await schemaSubscriptions.registerSubscription(client, "c1", "t2");
+
+      const r2 = await client.query(`
+        SELECT * FROM "fq"."locks"
+        WHERE "topic" = 't2' AND "client" = 'c1'
+      `);
+      expect(r2.rowCount).toBe(1);
+    });
+
+    it("should be idempotent in registering clients and subscriptions", async () => {
+      await Promise.all([
+        schemaSubscriptions.registerClient(client, "c1"),
+        schemaSubscriptions.registerClient(client, "c1"),
+        schemaSubscriptions.registerSubscription(client, "c1", "t1"),
+        schemaSubscriptions.registerSubscription(client, "c1", "t1"),
+      ]);
+    });
+
+    it("should add the locks for active subscriptions after adding new messages", async () => {
+      await schemaSubscriptions.registerClient(client, "c1");
+      await schemaSubscriptions.registerSubscription(client, "c1", "t1");
+      await schemaSubscriptions.put(client, { c: 1 }, "t1", "p1");
+      await schemaSubscriptions.put(client, { c: 1 }, "t1", "p2");
+
+      const r1 = await client.query(`
+        SELECT * FROM "fq"."locks"
+        WHERE "topic" = 't1' AND "client" = 'c1'
+      `);
+      expect(r1.rowCount).toBe(2);
+    });
+
+    it();
   });
 });

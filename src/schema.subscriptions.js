@@ -5,7 +5,6 @@ const parseMessage = (msg) => ({
   offset: Number(msg.offset),
   payload: msg.payload,
   createdAt: new Date(msg.created_at),
-  lockedUntil: new Date(msg.locked_until),
 });
 
 const parseClient = (client) => ({
@@ -134,7 +133,6 @@ module.exports = {
       RETURNS trigger
       AS $on_insert_or_update_on_subscriptions$
       BEGIN
-
         INSERT INTO "fq"."locks"
         SELECT
           NEW."client" AS "client",
@@ -172,7 +170,7 @@ module.exports = {
       $on_insert_or_update_on_subscriptions$ LANGUAGE plpgsql;
 
       DROP TRIGGER IF EXISTS "fq_on_insert_or_update_on_subscriptions" ON "fq"."subscriptions";
-      CREATE TRIGGER "fq_on_insert_or_update_on_subscriptions" AFTER INSERT ON "fq"."subscriptions"
+      CREATE TRIGGER "fq_on_insert_or_update_on_subscriptions" AFTER INSERT OR UPDATE ON "fq"."subscriptions"
       FOR EACH ROW EXECUTE PROCEDURE "fq"."on_insert_or_update_on_subscriptions"();
     `);
 
@@ -325,6 +323,7 @@ module.exports = {
             AND "partition" = '${message.partition}'
           RETURNING *
         `);
+
         return parseLock(result.rows[0]);
       },
     };

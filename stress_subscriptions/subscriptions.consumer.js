@@ -30,7 +30,8 @@ const boot = async () => {
             result.partition
           }:${result.offset}`
         );
-        await client.query(`
+        try {
+          await client.query(`
           INSERT INTO "fq"."results" VALUES (
             '${clientId}',
             ${result.offset},
@@ -40,6 +41,17 @@ const boot = async () => {
             '${result.createdAt.toISOString()}'
           )
         `);
+        } catch (err) {
+          console.log(err.message);
+          console.log(
+            clientId,
+            result.client,
+            "--",
+            result.topic,
+            result.partition,
+            result.offset
+          );
+        }
         await schema.commit(client, result);
         // await new Promise((r) => setTimeout(r, 1000));
       }

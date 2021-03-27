@@ -12,12 +12,12 @@ const parseClient = (client) => ({
 });
 
 module.exports = {
-  reset: async (client) => {
-    await client.query('DROP SCHEMA IF EXISTS "fq" CASCADE;');
-    await client.query('CREATE SCHEMA IF NOT EXISTS "fq";');
+  reset: async (db) => {
+    await db.query('DROP SCHEMA IF EXISTS "fq" CASCADE;');
+    await db.query('CREATE SCHEMA IF NOT EXISTS "fq";');
   },
-  create: async (client) => {
-    await client.query(`
+  create: async (db) => {
+    await db.query(`
         CREATE TABLE IF NOT EXISTS "fq"."messages" (
           "offset" BIGSERIAL,
           "topic" VARCHAR(50),
@@ -27,7 +27,7 @@ module.exports = {
         );
       `);
 
-    await client.query(`
+    await db.query(`
         CREATE TABLE IF NOT EXISTS "fq"."clients" (
           "id" VARCHAR(10),
           "topic" VARCHAR(50),
@@ -36,8 +36,8 @@ module.exports = {
         );
       `);
   },
-  put: async (client, topic = "*", payload) => {
-    const result = await client.query(`
+  put: async (db, topic = "*", payload) => {
+    const result = await db.query(`
         INSERT INTO "fq"."messages"
         ("topic", "payload") VALUES
         ('${topic}', '${JSON.stringify(payload)}')
@@ -45,8 +45,8 @@ module.exports = {
       `);
     return parseMessage(result.rows[0]);
   },
-  get: async (client, clientId = "*", topic = "*") => {
-    const result = await client.query(`
+  get: async (db, client = "*", topic = "*") => {
+    const result = await db.query(`
         SELECT * FROM "fq"."messages"
         WHERE "topic" = '${topic}' 
           AND "offset" > (
@@ -57,7 +57,7 @@ module.exports = {
             END 
             AS "offset"
           FROM fq.clients 
-          WHERE id = '${clientId}'
+          WHERE id = '${client}'
             AND topic = '${topic}'
           LIMIT 1
         )
@@ -72,11 +72,11 @@ module.exports = {
     return {
       ...message,
       commit: async () => {
-        const result = await client.query(`
+        const result = await db.query(`
              INSERT INTO "fq"."clients"
             ("id", "topic", "offset")
             VALUES
-            ('${clientId}', '${topic}', ${message.offset})
+            ('${client}', '${topic}', ${message.offset})
             RETURNING *
           `);
         return result.rows.map(parseClient).shift();

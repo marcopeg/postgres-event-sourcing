@@ -5,21 +5,20 @@ const parseMessage = (msg) => ({
 });
 
 module.exports = {
-  reset: async (client) => {
-    await client.query('DROP SCHEMA IF EXISTS "fq" CASCADE;');
-    await client.query('CREATE SCHEMA IF NOT EXISTS "fq";');
+  reset: async (db) => {
+    await db.query('DROP SCHEMA IF EXISTS "fq" CASCADE;');
+    await db.query('CREATE SCHEMA IF NOT EXISTS "fq";');
   },
-  create: async (client) => {
-    await client.query(`
-      CREATE TABLE IF NOT EXISTS "fq"."messages" (
+  create: async (db) => {
+    await db.query(`
+      CREATE TABLE IF NOT EXISTS "fq"."events" (
         "offset" BIGSERIAL,
-        "payload" JSONB DEFAULT '{}',
-        "created_at" TIMESTAMP DEFAULT NOW() NOT NULL,
+        "payload" JSONB DEFAULT '{}'
         PRIMARY KEY ("offset")
       );
     `);
 
-    await client.query(`
+    await db.query(`
       CREATE TABLE IF NOT EXISTS "fq"."clients" (
         "id" VARCHAR(10),
         "offset" BIGINT DEFAULT -1,
@@ -27,18 +26,18 @@ module.exports = {
       );
     `);
   },
-  put: async (client, payload) => {
-    const result = await client.query(`
-      INSERT INTO "fq"."messages"
+  put: async (db, payload) => {
+    const result = await db.query(`
+      INSERT INTO "fq"."events"
       ("payload") VALUES
       ('${JSON.stringify(payload)}')
       RETURNING *
     `);
     return parseMessage(result.rows[0]);
   },
-  get: async (client, clientId = "*") => {
-    const result = await client.query(`
-      SELECT * FROM "fq"."messages"
+  get: async (db, client = "*") => {
+    const result = await db.query(`
+      SELECT * FROM "fq"."events"
       WHERE "offset" > (
         SELECT
           CASE count(*)
@@ -47,7 +46,7 @@ module.exports = {
           END 
           AS "offset"
         FROM fq.clients 
-        WHERE id = '${clientId}'
+        WHERE id = '${client}'
         LIMIT 1
       )
       ORDER BY "offset" ASC
@@ -59,11 +58,11 @@ module.exports = {
     return {
       ...message,
       commit: async () => {
-        const result = await client.query(`
+        const result = await db.query(`
            INSERT INTO "fq"."clients"
           ("id", "offset")
           VALUES
-          ('${clientId}', ${message.offset})
+          ('${client}', ${message.offset})
           RETURNING *
         `);
         return result.rows

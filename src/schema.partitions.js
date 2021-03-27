@@ -23,15 +23,15 @@ const parseLock = (lock) => ({
 });
 
 module.exports = {
-  reset: async (client) => {
-    await client.query('DROP SCHEMA IF EXISTS "fq" CASCADE;');
-    await client.query('CREATE SCHEMA IF NOT EXISTS "fq";');
+  reset: async (db) => {
+    await db.query('DROP SCHEMA IF EXISTS "fq" CASCADE;');
+    await db.query('CREATE SCHEMA IF NOT EXISTS "fq";');
   },
-  create: async (client) => {
-    await client.query('CREATE SCHEMA IF NOT EXISTS "fq";');
+  create: async (db) => {
+    await db.query('CREATE SCHEMA IF NOT EXISTS "fq";');
 
-    await client.query(`
-      CREATE TABLE IF NOT EXISTS "fq"."messages" (
+    await db.query(`
+      CREATE TABLE IF NOT EXISTS "fq"."events" (
       "offset" BIGSERIAL,
       "topic" VARCHAR(50) DEFAULT '*',
       "partition" VARCHAR(50) DEFAULT '*',
@@ -41,7 +41,7 @@ module.exports = {
       );
     `);
 
-    await client.query(`
+    await db.query(`
       CREATE TABLE IF NOT EXISTS "fq"."partitions" (
       "topic" VARCHAR(50),
       "partition" VARCHAR(50),
@@ -51,7 +51,7 @@ module.exports = {
       );
     `);
 
-    await client.query(`
+    await db.query(`
       CREATE TABLE IF NOT EXISTS "fq"."clients" (
         "id" VARCHAR(32),
         "start_at" TIMESTAMP DEFAULT NOW() NOT NULL,
@@ -61,7 +61,7 @@ module.exports = {
       );
     `);
 
-    await client.query(`
+    await db.query(`
       CREATE TABLE IF NOT EXISTS "fq"."locks" (
         "client" VARCHAR(32),
         "topic" VARCHAR(50),
@@ -77,7 +77,7 @@ module.exports = {
 
     // SIDE EFFECT:
     // automatically bump "updated_at" when modifying a lock
-    await client.query(`
+    await db.query(`
       CREATE OR REPLACE FUNCTION "fq"."before_update_locks_table"()
       RETURNS trigger 
       AS $before_update_locks_table$
@@ -95,10 +95,10 @@ module.exports = {
     // SIDE EFFECT:
     // after appending a new message, the relative topic/partition
     // line is upserted and updated with the latest available offset
-    await client.query(`
-      CREATE OR REPLACE FUNCTION "fq"."on_insert_on_messages"()
+    await db.query(`
+      CREATE OR REPLACE FUNCTION "fq"."on_insert_on_events"()
       RETURNS trigger 
-      AS $on_insert_on_messages$
+      AS $on_insert_on_events$
       BEGIN
 
         INSERT INTO "fq"."partitions"
@@ -109,17 +109,17 @@ module.exports = {
 
         RETURN NEW;
       END;
-      $on_insert_on_messages$ LANGUAGE plpgsql;
+      $on_insert_on_events$ LANGUAGE plpgsql;
 
-      DROP TRIGGER IF EXISTS "fq_on_insert_on_messages" ON "fq"."messages";
-      CREATE TRIGGER "fq_on_insert_on_messages" AFTER INSERT ON "fq"."messages"
-      FOR EACH ROW EXECUTE PROCEDURE "fq"."on_insert_on_messages"();
+      DROP TRIGGER IF EXISTS "fq_on_insert_on_events" ON "fq"."events";
+      CREATE TRIGGER "fq_on_insert_on_events" AFTER INSERT ON "fq"."events"
+      FOR EACH ROW EXECUTE PROCEDURE "fq"."on_insert_on_events"();
     `);
 
     // SIDE EFFECT:
     // after upserting a client, all the locks should be re-upserted so to
     // keep the correct matrix of client/topic/partition locks
-    await client.query(`
+    await db.query(`
       CREATE OR REPLACE FUNCTION "fq"."on_insert_or_update_on_clients"()
       RETURNS trigger
       AS $on_insert_or_update_on_clients$
@@ -132,7 +132,7 @@ module.exports = {
           "t1"."partition" AS "partition",
           COALESCE(
             (
-              SELECT "t2"."offset" - 1 AS "offset" FROM "fq"."messages" AS "t2"
+              SELECT "t2"."offset" - 1 AS "offset" FROM "fq"."events" AS "t2"
               WHERE "t2"."topic" = "t1"."topic"
                 AND "t2"."partition" = "t1"."partition"
                 AND "t2"."created_at" >= NEW."start_at"
@@ -140,7 +140,7 @@ module.exports = {
               LIMIT 1
             ),
           (
-              SELECT "t2"."offset" AS "offset" FROM "fq"."messages" AS "t2"
+              SELECT "t2"."offset" AS "offset" FROM "fq"."events" AS "t2"
               WHERE "t2"."topic" = "t1"."topic"
                 AND "t2"."partition" = "t1"."partition"
               ORDER BY "t2"."offset" DESC
@@ -165,7 +165,7 @@ module.exports = {
       FOR EACH ROW EXECUTE PROCEDURE "fq"."on_insert_or_update_on_clients"();
     `);
 
-    await client.query(`
+    await db.query(`
       CREATE OR REPLACE FUNCTION "fq"."on_insert_on_partitions"()
       RETURNS trigger
       AS $on_insert_on_partitions$
@@ -192,16 +192,16 @@ module.exports = {
       FOR EACH ROW EXECUTE PROCEDURE "fq"."on_insert_on_partitions"();
     `);
   },
-  put: async (client, payload, topic = "*", partition = "*") => {
-    const result = await client.query(`
-      INSERT INTO "fq"."messages"
+  put: async (db, payload, topic = "*", partition = "*") => {
+    const result = await db.query(`
+      INSERT INTO "fq"."events"
       ("topic", "partition", "payload") VALUES
       ('${topic}', '${partition}', '${JSON.stringify(payload)}')
       RETURNING *
     `);
     return parseMessage(result.rows[0]);
   },
-  registerClient: async (client, clientId = "*", fromStart = false) => {
+  registerClient: async (db, client = "*", fromStart = false) => {
     let startAt = "";
     switch (fromStart) {
       case true:
@@ -215,23 +215,23 @@ module.exports = {
     }
     const registerSql = `
       INSERT INTO "fq"."clients"
-      ("id", "start_at") VALUES ('${clientId}', ${startAt})
+      ("id", "start_at") VALUES ('${client}', ${startAt})
       ON CONFLICT ON CONSTRAINT "clients_pkey"
       DO UPDATE SET "updated_at" = NOW(), "start_at" = EXCLUDED."start_at"
       RETURNING *
     `;
-    const result = await client.query(registerSql);
+    const result = await db.query(registerSql);
     return parseClient(result.rows[0]);
   },
-  get: async (client, clientId = "*", topic = "*") => {
-    const result = await client.query(`
+  get: async (db, client = "*", topic = "*") => {
+    const result = await db.query(`
       WITH
       "apply_lock" AS (
         UPDATE "fq"."locks" AS "t1"
         SET "locked_until" = NOW() + INTERVAL '5m'
         FROM (
           SELECT * FROM "fq"."locks"
-          WHERE "client" = '${clientId}'
+          WHERE "client" = '${client}'
             AND "topic" = '${topic}'
             AND "locked_until" < NOW()
             AND "offset" < "last_offset"
@@ -247,7 +247,7 @@ module.exports = {
         (SELECT "client" FROM "apply_lock") AS "client",
         "t1".*,
         (SELECT "locked_until" FROM "apply_lock") AS "locked_until"
-      FROM "fq"."messages" AS "t1"
+      FROM "fq"."events" AS "t1"
       WHERE "topic" = (SELECT "topic" FROM "apply_lock")
         AND "partition" = (SELECT "partition" FROM "apply_lock")
         AND "offset" > ANY (SELECT "offset" FROM "apply_lock")
@@ -262,12 +262,12 @@ module.exports = {
     return {
       ...message,
       commit: async () => {
-        const result = await client.query(`
+        const result = await db.query(`
           UPDATE "fq"."locks"
           SET "offset" = ${message.offset},
               "locked_until" = NOW(),
               "last_offset" = (
-                SELECT "t2"."offset" FROM "fq"."messages" AS "t2"
+                SELECT "t2"."offset" FROM "fq"."events" AS "t2"
                 WHERE "t2"."topic" = '${message.topic}'
                   AND "partition" = '${message.partition}'
                 ORDER BY "t2"."offset" DESC

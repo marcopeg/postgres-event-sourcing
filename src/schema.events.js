@@ -5,13 +5,13 @@ const parseMessage = (msg) => ({
 });
 
 module.exports = {
-  reset: async (client) => {
-    await client.query('DROP SCHEMA IF EXISTS "fq" CASCADE;');
-    await client.query('CREATE SCHEMA IF NOT EXISTS "fq";');
+  reset: async (db) => {
+    await db.query('DROP SCHEMA IF EXISTS "fq" CASCADE;');
+    await db.query('CREATE SCHEMA IF NOT EXISTS "fq";');
   },
-  create: async (client) => {
-    await client.query(`
-      CREATE TABLE IF NOT EXISTS "fq"."messages" (
+  create: async (db) => {
+    await db.query(`
+      CREATE TABLE IF NOT EXISTS "fq"."events" (
         "offset" BIGSERIAL,
         "payload" JSONB DEFAULT '{}',
         "created_at" TIMESTAMP DEFAULT NOW() NOT NULL,
@@ -19,18 +19,18 @@ module.exports = {
       );
     `);
   },
-  put: async (client, payload) => {
-    const result = await client.query(`
-      INSERT INTO "fq"."messages" 
+  put: async (db, payload) => {
+    const result = await db.query(`
+      INSERT INTO "fq"."events" 
       ("payload") VALUES
       ('${JSON.stringify(payload)}')
       RETURNING *
     `);
     return parseMessage(result.rows[0]);
   },
-  get: async (client, offset = -1, limit = 1) => {
-    const result = await client.query(`
-      SELECT * FROM "fq"."messages"
+  get: async (db, offset = -1, limit = 1) => {
+    const result = await db.query(`
+      SELECT * FROM "fq"."events"
       WHERE "offset" > ${offset}
       ORDER BY "offset" ASC
       LIMIT ${limit};

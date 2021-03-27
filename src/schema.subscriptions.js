@@ -22,16 +22,16 @@ const parseLock = (lock) => ({
 });
 
 module.exports = {
-  reset: async (client) => {
-    await client.query('DROP SCHEMA IF EXISTS "fq" CASCADE;');
-    await client.query('CREATE SCHEMA IF NOT EXISTS "fq";');
+  reset: async (db) => {
+    await db.query('DROP SCHEMA IF EXISTS "fq" CASCADE;');
+    await db.query('CREATE SCHEMA IF NOT EXISTS "fq";');
   },
-  create: async (client) => {
-    await client.query('CREATE SCHEMA IF NOT EXISTS "fq";');
+  create: async (db) => {
+    await db.query('CREATE SCHEMA IF NOT EXISTS "fq";');
 
-    // SCHEMA: messages
-    await client.query(`
-      CREATE TABLE IF NOT EXISTS "fq"."messages" (
+    // SCHEMA: events
+    await db.query(`
+      CREATE TABLE IF NOT EXISTS "fq"."events" (
       "offset" BIGSERIAL,
       "topic" VARCHAR(50) DEFAULT '*',
       "partition" VARCHAR(50) DEFAULT '*',
@@ -42,7 +42,7 @@ module.exports = {
     `);
 
     // SCHEMA: partitions
-    await client.query(`
+    await db.query(`
       CREATE TABLE IF NOT EXISTS "fq"."partitions" (
       "topic" VARCHAR(50),
       "partition" VARCHAR(50),
@@ -53,7 +53,7 @@ module.exports = {
     `);
 
     // SCHEMA: subscriptions
-    await client.query(`
+    await db.query(`
       CREATE TABLE IF NOT EXISTS "fq"."subscriptions" (
         "client" VARCHAR(32),
         "topic" VARCHAR(50),
@@ -65,7 +65,7 @@ module.exports = {
     `);
 
     // SCHEMA: locks
-    await client.query(`
+    await db.query(`
       CREATE TABLE IF NOT EXISTS "fq"."locks" (
         "client" VARCHAR(32),
         "topic" VARCHAR(50),
@@ -81,7 +81,7 @@ module.exports = {
 
     // SIDE EFFECT:
     // automatically bump "updated_at" when modifying a lock
-    await client.query(`
+    await db.query(`
       CREATE OR REPLACE FUNCTION "fq"."before_update_locks_table"()
       RETURNS trigger
       AS $before_update_locks_table$
@@ -99,10 +99,10 @@ module.exports = {
     // SIDE EFFECT:
     // after appending a new message, the relative topic/partition
     // line is upserted and updated with the latest available offset
-    await client.query(`
-      CREATE OR REPLACE FUNCTION "fq"."on_insert_on_messages"()
+    await db.query(`
+      CREATE OR REPLACE FUNCTION "fq"."on_insert_on_events"()
       RETURNS trigger
-      AS $on_insert_on_messages$
+      AS $on_insert_on_events$
       BEGIN
 
         INSERT INTO "fq"."partitions"
@@ -113,17 +113,17 @@ module.exports = {
 
         RETURN NEW;
       END;
-      $on_insert_on_messages$ LANGUAGE plpgsql;
+      $on_insert_on_events$ LANGUAGE plpgsql;
 
-      DROP TRIGGER IF EXISTS "fq_on_insert_on_messages" ON "fq"."messages";
-      CREATE TRIGGER "fq_on_insert_on_messages" AFTER INSERT ON "fq"."messages"
-      FOR EACH ROW EXECUTE PROCEDURE "fq"."on_insert_on_messages"();
+      DROP TRIGGER IF EXISTS "fq_on_insert_on_events" ON "fq"."events";
+      CREATE TRIGGER "fq_on_insert_on_events" AFTER INSERT ON "fq"."events"
+      FOR EACH ROW EXECUTE PROCEDURE "fq"."on_insert_on_events"();
     `);
 
     // SIDE EFFECT:
     // after upserting a subscription, all the locks should be re-upserted so to
     // keep the correct matrix of client/topic/partition locks
-    await client.query(`
+    await db.query(`
       CREATE OR REPLACE FUNCTION "fq"."on_insert_or_update_on_subscriptions"()
       RETURNS trigger
       AS $on_insert_or_update_on_subscriptions$
@@ -135,7 +135,7 @@ module.exports = {
           "t1"."partition" AS "partition",
           COALESCE(
             (
-              SELECT "t2"."offset" - 1 AS "offset" FROM "fq"."messages" AS "t2"
+              SELECT "t2"."offset" - 1 AS "offset" FROM "fq"."events" AS "t2"
               WHERE "t2"."topic" = "t1"."topic"
                 AND "t2"."partition" = "t1"."partition"
                 AND "t2"."created_at" >= NEW."start_at"
@@ -143,7 +143,7 @@ module.exports = {
               LIMIT 1
             ),
           (
-              SELECT "t2"."offset" AS "offset" FROM "fq"."messages" AS "t2"
+              SELECT "t2"."offset" AS "offset" FROM "fq"."events" AS "t2"
               WHERE "t2"."topic" = "t1"."topic"
                 AND "t2"."partition" = "t1"."partition"
               ORDER BY "t2"."offset" DESC
@@ -170,9 +170,9 @@ module.exports = {
     `);
 
     // SIDE EFFECT:
-    // While new messages are posted, and partitions upserted, this side effect keeps in sync
+    // While new events are posted, and partitions upserted, this side effect keeps in sync
     // the locks for all the active subscriptions.
-    await client.query(`
+    await db.query(`
       CREATE OR REPLACE FUNCTION "fq"."on_insert_on_partitions"()
       RETURNS trigger
       AS $on_insert_on_partitions$
@@ -185,7 +185,7 @@ module.exports = {
           NEW."partition" AS "partition",
           COALESCE(
             (
-              SELECT "t2"."offset" - 1 AS "offset" FROM "fq"."messages" AS "t2"
+              SELECT "t2"."offset" - 1 AS "offset" FROM "fq"."events" AS "t2"
               WHERE "t2"."topic" = NEW."topic"
                 AND "t2"."partition" = NEW."partition"
                 AND "t2"."created_at" >= "t1"."start_at"
@@ -193,7 +193,7 @@ module.exports = {
               LIMIT 1
             ),
           (
-              SELECT "t2"."offset" AS "offset" FROM "fq"."messages" AS "t2"
+              SELECT "t2"."offset" AS "offset" FROM "fq"."events" AS "t2"
               WHERE "t2"."topic" = NEW."topic"
                 AND "t2"."partition" = NEW."partition"
               ORDER BY "t2"."offset" DESC
@@ -218,7 +218,7 @@ module.exports = {
 
     // FUNCTION: fq.get(client, topic)
     // Retrieve a new message for processing
-    await client.query(`
+    await db.query(`
       CREATE OR REPLACE FUNCTION "fq"."get"(
         PAR_client VARCHAR,
 	      PAR_topic VARCHAR
@@ -258,7 +258,7 @@ module.exports = {
           (SELECT "t3"."client" FROM "apply_lock" AS "t3") AS "client",
           "t1".*,
           (SELECT "t3"."locked_until" FROM "apply_lock" AS "t3") AS "locked_until"
-        FROM "fq"."messages" AS "t1"
+        FROM "fq"."events" AS "t1"
         WHERE "t1"."topic" = (SELECT "t3"."topic" FROM "apply_lock" AS "t3")
           AND "t1"."partition" = (SELECT "t3"."partition" FROM "apply_lock" AS "t3")
           AND "t1"."offset" > ANY (SELECT "t3"."offset" FROM "apply_lock" AS "t3")
@@ -272,7 +272,7 @@ module.exports = {
 
     // FUNCTION: fq.commit(client, topic, partition, offset)
     // Commit a message after it's been processed
-    await client.query(`
+    await db.query(`
       CREATE OR REPLACE FUNCTION "fq"."commit"(
         PAR_client VARCHAR,
         PAR_topic VARCHAR,
@@ -288,7 +288,7 @@ module.exports = {
           SET "offset" = PAR_offset,
               "locked_until" = NOW(),
               "last_offset" = (
-                SELECT "t2"."offset" FROM "fq"."messages" AS "t2"
+                SELECT "t2"."offset" FROM "fq"."events" AS "t2"
                 WHERE "t2"."topic" = PAR_topic
                   AND "partition" = PAR_partition
                 ORDER BY "t2"."offset" DESC
@@ -308,7 +308,7 @@ module.exports = {
     // subscribe to a topic from the two ends
     // true -> from the beginning
     // false -> from current time (default option)
-    await client.query(`
+    await db.query(`
       CREATE OR REPLACE FUNCTION "fq"."subscribe"(
         PAR_client VARCHAR,
         PAR_topic VARCHAR,
@@ -322,7 +322,7 @@ module.exports = {
 
         IF PAR_startAt = true THEN
           SELECT "created_at" as "start_at" INTO VAR_r
-          FROM "fq"."messages"
+          FROM "fq"."events"
           WHERE "topic" = PAR_topic
           ORDER BY "created_at" ASC
           LIMIT 1;
@@ -345,7 +345,7 @@ module.exports = {
 
     // FUNCTION: fq.subscribe(client, topic, startAt)
     // subscribe to a topic from a specific point in time
-    await client.query(`
+    await db.query(`
       CREATE OR REPLACE FUNCTION "fq"."subscribeAt"(
         PAR_client VARCHAR,
         PAR_topic VARCHAR,
@@ -370,18 +370,18 @@ module.exports = {
 
     // FUNCTION: fq.put(payload, topic, partition)
     // subscribe to a topic from a specific point in time
-    await client.query(`
+    await db.query(`
       CREATE OR REPLACE FUNCTION "fq"."put"(
         PAR_payload JSONB,
         PAR_topic VARCHAR = '*',
         PAR_partition VARCHAR = '*'
       )
-      RETURNS SETOF "fq"."messages"
+      RETURNS SETOF "fq"."events"
       AS $fn$
       BEGIN
 
         RETURN QUERY
-        INSERT INTO "fq"."messages"
+        INSERT INTO "fq"."events"
         ("topic", "partition", "payload") VALUES
         (PAR_topic, PAR_partition, PAR_payload)
         RETURNING *;

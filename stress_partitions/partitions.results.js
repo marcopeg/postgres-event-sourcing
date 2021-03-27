@@ -26,7 +26,7 @@ const boot = async () => {
     SELECT
       COUNT(*) AS "count",
       MAX("created_at") - MIN("created_at") AS "elapsed" 
-    FROM "fq"."messages";
+    FROM "fq"."events";
   `);
 
   const results = await db.query(`
@@ -69,14 +69,14 @@ const boot = async () => {
   console.log("============== RESULTS =================");
   console.log("");
   console.log(
-    `${input.rows[0].count} messages were pushed in ${input.rows[0].elapsed.milliseconds}ms`
+    `${input.rows[0].count} events were pushed in ${input.rows[0].elapsed.milliseconds}ms`
   );
-  console.log(`> ${Math.round(writeThroughput)} messages/s`);
+  console.log(`> ${Math.round(writeThroughput)} events/s`);
   console.log("");
   console.log(
-    `${results.rows[0].count} messages were processed in ${results.rows[0].elapsed.milliseconds}ms`
+    `${results.rows[0].count} events were processed in ${results.rows[0].elapsed.milliseconds}ms`
   );
-  console.log(`> ${Math.round(readThroughput)} messages/s`);
+  console.log(`> ${Math.round(readThroughput)} events/s`);
   console.log("");
 
   if (!fs.existsSync("/stats/partitions.csv")) {
@@ -89,8 +89,8 @@ const boot = async () => {
       "consumer1_batch_parallel",
       "consumer2_replicas",
       "consumer2_batch_parallel",
-      "messages_count",
-      "messages_elapsed",
+      "events_count",
+      "events_elapsed",
       "results_count",
       "results_elapsed",
       "write_concurrency_factor",

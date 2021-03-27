@@ -41,12 +41,12 @@ services:
       - ./package.json:/usr/src/app/package.json:delegated
       - ./package-lock.json:/usr/src/app/package-lock.json:delegated
       - ./src:/usr/src/app/src:delegated
-      - ./stress_partitions:/usr/src/app/stress_partitions:delegated
+      - ./stress_${TARGET}:/usr/src/app/stress_${TARGET}:delegated
     environment:
       NODE_ENV: development
       PGSTRING: postgres://postgres:${POSTGRES_PASSWORD:-postgres}@postgres:5432/postgres
     working_dir: /usr/src/app
-    entrypoint: ["node", "stress_partitions/partitions.reset.js"]
+    entrypoint: ["node", "stress_${TARGET}/${TARGET}.reset.js"]
 
   results:
     image: node:12.20
@@ -59,20 +59,20 @@ services:
       - ./package.json:/usr/src/app/package.json:delegated
       - ./package-lock.json:/usr/src/app/package-lock.json:delegated
       - ./src:/usr/src/app/src:delegated
-      - ./stress_partitions:/usr/src/app/stress_partitions:delegated
+      - ./stress_${TARGET}:/usr/src/app/stress_${TARGET}:delegated
     environment:
       NODE_ENV: development
       PGSTRING: postgres://postgres:${POSTGRES_PASSWORD:-postgres}@postgres:5432/postgres
-      PRODUCER_MAX_PARTITIONS: ${PARTITIONS_PRODUCER_MAX_PARTITIONS:-1}
-      PRODUCER_BATCH_SERIAL: ${PARTITIONS_PRODUCER_BATCH_SERIAL:-10}
-      PRODUCER_BATCH_PARALLEL: ${PARTITIONS_PRODUCER_BATCH_PARALLEL:-1}
-      PRODUCER_REPLICAS: ${PARTITIONS_PRODUCER_REPLICAS:-1}
-      CONSUMER1_REPLICAS: ${PARTITIONS_CONSUMER1_REPLICAS:-1}
-      CONSUMER1_BATCH_PARALLEL: ${PARTITIONS_CONSUMER1_BATCH_PARALLEL:-1}
-      CONSUMER2_REPLICAS: ${PARTITIONS_CONSUMER2_REPLICAS:-1}
-      CONSUMER2_BATCH_PARALLEL: ${PARTITIONS_CONSUMER2_BATCH_PARALLEL:-1}
+      PRODUCER_MAX_PARTITIONS: ${STRESS_PRODUCER_MAX_PARTITIONS:-1}
+      PRODUCER_BATCH_SERIAL: ${STRESS_PRODUCER_BATCH_SERIAL:-10}
+      PRODUCER_BATCH_PARALLEL: ${STRESS_PRODUCER_BATCH_PARALLEL:-1}
+      PRODUCER_REPLICAS: ${STRESS_PRODUCER_REPLICAS:-1}
+      CONSUMER1_REPLICAS: ${STRESS_CONSUMER1_REPLICAS:-1}
+      CONSUMER1_BATCH_PARALLEL: ${STRESS_CONSUMER1_BATCH_PARALLEL:-1}
+      CONSUMER2_REPLICAS: ${STRESS_CONSUMER2_REPLICAS:-1}
+      CONSUMER2_BATCH_PARALLEL: ${STRESS_CONSUMER2_BATCH_PARALLEL:-1}
     working_dir: /usr/src/app
-    entrypoint: ["node", "stress_partitions/partitions.results.js"]
+    entrypoint: ["node", "stress_${TARGET}/${TARGET}.results.js"]
 
   producer:
     image: node:12.20
@@ -84,18 +84,18 @@ services:
       - ./package.json:/usr/src/app/package.json:delegated
       - ./package-lock.json:/usr/src/app/package-lock.json:delegated
       - ./src:/usr/src/app/src:delegated
-      - ./stress_partitions:/usr/src/app/stress_partitions:delegated
+      - ./stress_${TARGET}:/usr/src/app/stress_${TARGET}:delegated
     environment:
       NODE_ENV: development
       PGSTRING: postgres://postgres:${POSTGRES_PASSWORD:-postgres}@postgres:5432/postgres
-      MAX_PARTITIONS: ${PARTITIONS_PRODUCER_MAX_PARTITIONS:-1}
-      BATCH_SERIAL: ${PARTITIONS_PRODUCER_BATCH_SERIAL:-10}
-      BATCH_PARALLEL: ${PARTITIONS_PRODUCER_BATCH_PARALLEL:-1}
+      MAX_PARTITIONS: ${STRESS_PRODUCER_MAX_PARTITIONS:-1}
+      BATCH_SERIAL: ${STRESS_PRODUCER_BATCH_SERIAL:-10}
+      BATCH_PARALLEL: ${STRESS_PRODUCER_BATCH_PARALLEL:-1}
     working_dir: /usr/src/app
-    entrypoint: ["node", "stress_partitions/partitions.producer.js"]
+    entrypoint: ["node", "stress_${TARGET}/${TARGET}.producer.js"]
     deploy:
       mode: replicated
-      replicas: ${PARTITIONS_PRODUCER_REPLICAS:-1}
+      replicas: ${STRESS_PRODUCER_REPLICAS:-1}
 
   consumer1:
     image: node:12.20
@@ -107,17 +107,17 @@ services:
       - ./package.json:/usr/src/app/package.json:delegated
       - ./package-lock.json:/usr/src/app/package-lock.json:delegated
       - ./src:/usr/src/app/src:delegated
-      - ./stress_partitions:/usr/src/app/stress_partitions:delegated
+      - ./stress_${TARGET}:/usr/src/app/stress_${TARGET}:delegated
     environment:
       NODE_ENV: development
       PGSTRING: postgres://postgres:${POSTGRES_PASSWORD:-postgres}@postgres:5432/postgres
-      CLIENT_ID: ${PARTITIONS_CONSUMER1_CLIENT_ID:-c1}
-      BATCH_PARALLEL: ${PARTITIONS_CONSUMER1_BATCH_PARALLEL:-1}
+      CLIENT_ID: ${STRESS_CONSUMER1_CLIENT_ID:-c1}
+      BATCH_PARALLEL: ${STRESS_CONSUMER1_BATCH_PARALLEL:-1}
     working_dir: /usr/src/app
-    entrypoint: ["node", "stress_partitions/partitions.consumer.js"]
+    entrypoint: ["node", "stress_${TARGET}/${TARGET}.consumer.js"]
     deploy:
       mode: replicated
-      replicas: ${PARTITIONS_CONSUMER1_REPLICAS:-1}
+      replicas: ${STRESS_CONSUMER1_REPLICAS:-1}
 
   consumer2:
     image: node:12.20
@@ -129,14 +129,14 @@ services:
       - ./package.json:/usr/src/app/package.json:delegated
       - ./package-lock.json:/usr/src/app/package-lock.json:delegated
       - ./src:/usr/src/app/src:delegated
-      - ./stress_partitions:/usr/src/app/stress_partitions:delegated
+      - ./stress_${TARGET}:/usr/src/app/stress_${TARGET}:delegated
     environment:
       NODE_ENV: development
       PGSTRING: postgres://postgres:${POSTGRES_PASSWORD:-postgres}@postgres:5432/postgres
-      CLIENT_ID: ${PARTITIONS_CONSUMER2_CLIENT_ID:-c2}
-      BATCH_PARALLEL: ${PARTITIONS_CONSUMER2_BATCH_PARALLEL:-1}
+      CLIENT_ID: ${STRESS_CONSUMER2_CLIENT_ID:-c2}
+      BATCH_PARALLEL: ${STRESS_CONSUMER2_BATCH_PARALLEL:-1}
     working_dir: /usr/src/app
-    entrypoint: ["node", "stress_partitions/partitions.consumer.js"]
+    entrypoint: ["node", "stress_${TARGET}/${TARGET}.consumer.js"]
     deploy:
       mode: replicated
-      replicas: ${PARTITIONS_CONSUMER2_REPLICAS:-1}
+      replicas: ${STRESS_CONSUMER2_REPLICAS:-1}

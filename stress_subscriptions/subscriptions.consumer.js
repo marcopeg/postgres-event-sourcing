@@ -1,5 +1,5 @@
 const { Client } = require("pg");
-const schema = require("../src/schema.partitions");
+const schema = require("../src/schema.subscriptions");
 
 const clientId = process.env.CLIENT_ID || process.env.HOSTNAME || "*";
 const batchParallel = process.env.BATCH_PARALLEL || 10;
@@ -9,7 +9,7 @@ const boot = async () => {
   const client = new Client({ connectionString: process.env.PGSTRING });
   await client.connect();
 
-  await schema.registerClient(client, clientId, true);
+  await schema.subscribe(client, clientId, "*", true);
   // console.log(clientId, clientResult);
 
   let iterations = 0;
@@ -40,7 +40,7 @@ const boot = async () => {
             '${result.createdAt.toISOString()}'
           )
         `);
-        await result.commit();
+        await schema.commit(client, result);
         // await new Promise((r) => setTimeout(r, 1000));
       }
     }

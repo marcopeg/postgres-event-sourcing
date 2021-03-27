@@ -1,27 +1,58 @@
 partitions-db:
-	docker-compose -f docker-compose.partitions.yml up -d postgres
+	TARGET=partitions docker-compose -f docker-compose.stress.yml up -d postgres
 
 partitions-setup:
-	docker-compose -f docker-compose.partitions.yml up setup
-	docker-compose -f docker-compose.partitions.yml rm -f setup
+	TARGET=partitions docker-compose -f docker-compose.stress.yml up setup
+	TARGET=partitions docker-compose -f docker-compose.stress.yml rm -f setup
 
 partitions-producer:
-	docker-compose -f docker-compose.partitions.yml up reset
-	docker-compose -f docker-compose.partitions.yml up producer
-	docker-compose -f docker-compose.partitions.yml rm -f producer reset
+	TARGET=partitions docker-compose -f docker-compose.stress.yml up reset
+	TARGET=partitions docker-compose -f docker-compose.stress.yml up producer
+	TARGET=partitions docker-compose -f docker-compose.stress.yml rm -f producer reset
 
 partitions-consumer:
-	docker-compose -f docker-compose.partitions.yml up consumer1 consumer2
-	docker-compose -f docker-compose.partitions.yml rm -f consumer1 consumer2
+	TARGET=partitions docker-compose -f docker-compose.stress.yml up consumer1 consumer2
+	TARGET=partitions docker-compose -f docker-compose.stress.yml rm -f consumer1 consumer2
 
 partitions-results:
-	docker-compose -f docker-compose.partitions.yml up results
-	docker-compose -f docker-compose.partitions.yml rm -f results
+	TARGET=partitions docker-compose -f docker-compose.stress.yml up results
+	TARGET=partitions docker-compose -f docker-compose.stress.yml rm -f results
 
 partitions-run:
-	docker-compose -f docker-compose.partitions.yml up reset
-	docker-compose -f docker-compose.partitions.yml up producer
-	docker-compose -f docker-compose.partitions.yml up consumer1 consumer2
-	docker-compose -f docker-compose.partitions.yml rm -f reset producer consumer1 consumer2
-	docker-compose -f docker-compose.partitions.yml up results
-	docker-compose -f docker-compose.partitions.yml rm -f results
+	TARGET=partitions docker-compose -f docker-compose.stress.yml up reset
+	TARGET=partitions docker-compose -f docker-compose.stress.yml up producer
+	TARGET=partitions docker-compose -f docker-compose.stress.yml up consumer1 consumer2
+	TARGET=partitions docker-compose -f docker-compose.stress.yml rm -f reset producer consumer1 consumer2
+	TARGET=partitions docker-compose -f docker-compose.stress.yml up results
+	TARGET=partitions docker-compose -f docker-compose.stress.yml rm -f results
+
+
+
+subscriptions-db:
+	TARGET=subscriptions docker-compose -f docker-compose.stress.yml up -d postgres
+
+subscriptions-setup:
+	TARGET=subscriptions docker-compose -f docker-compose.stress.yml up setup
+	TARGET=subscriptions docker-compose -f docker-compose.stress.yml rm -f setup
+
+subscriptions-producer:
+	TARGET=subscriptions docker-compose -f docker-compose.stress.yml up reset
+	TARGET=subscriptions docker-compose -f docker-compose.stress.yml up producer
+	TARGET=subscriptions docker-compose -f docker-compose.stress.yml rm -f producer reset
+
+subscriptions-consumer:
+	TARGET=subscriptions docker-compose -f docker-compose.stress.yml up consumer1 consumer2
+	TARGET=subscriptions docker-compose -f docker-compose.stress.yml rm -f consumer1 consumer2
+
+subscriptions-results:
+	TARGET=subscriptions docker-compose -f docker-compose.stress.yml up results
+	TARGET=subscriptions docker-compose -f docker-compose.stress.yml rm -f results
+
+subscriptions-run:
+	TARGET=subscriptions docker-compose -f docker-compose.stress.yml up reset
+	TARGET=subscriptions docker-compose -f docker-compose.stress.yml up producer
+	TARGET=subscriptions docker-compose -f docker-compose.stress.yml up consumer1 consumer2
+	TARGET=subscriptions docker-compose -f docker-compose.stress.yml rm -f reset producer consumer1 consumer2
+	TARGET=subscriptions docker-compose -f docker-compose.stress.yml up results
+	TARGET=subscriptions docker-compose -f docker-compose.stress.yml rm -f results
+

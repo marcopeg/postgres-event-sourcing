@@ -6,7 +6,16 @@ This is an attempt to reproduce a Kafka-like data behavior for event-sourcing us
 
 ## Pitch
 
-Big companies benefit from products like RabbitMQ, Kafka, and Elastic, and have the matching economy to pay for them. Most of the companies around this world would benefit from the same patterns but don't have enough scale to make it efficient. I'm building open-source low-cost tools based on PostgreSQL that provide such tools at a fraction of the cost. I will build a cloud platform to offer a commercial "as a service" (S/PAAS) for those who lack the necessary skills to run them on-premise.
+Big companies benefit from products like RabbitMQ, Kafka, and Elastic, and have the matching economy to pay for the required resources, mostly clusters of virtual machines.
+
+Most of the companies around this world would benefit from the same patterns, but **don't have enough scale to make it efficient**.
+
+> Running a cluster of 3 servers just to store a few million messages in a RabbitMQ queue or Kafka topic is simply too expensive.
+
+I'm building open-source low-cost tools based on PostgreSQL that provide functionalities similar to the big players at a fraction of the cost.
+
+> [Fetchq](https://fetchq.com) is the first tool that I have released.  
+> It offers an efficient queue management system based on Postgres.
 
 ## Development
 

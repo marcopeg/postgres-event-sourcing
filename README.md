@@ -1,8 +1,8 @@
-# KafkaPG
+# Postgres Event Sourcing
 
 ## Goal
 
-This is an attempt to reproduce a Kafka-like data behavior using Postgres to coordinate write/read concurrency over a topic of messages.
+This is an attempt to reproduce a Kafka-like data behavior for event-sourcing using Postgres to coordinate write/read concurrency over a topic of messages from multiple producers/consumers instances.
 
 ## Pitch
 

@@ -1,6 +1,6 @@
 require("dotenv").config();
 const { Pool } = require("pg");
-const schemaLocks = require("./schema.locks");
+const schemaLocks = require("../src/schema.locks");
 const Producer = require("./producer");
 const Consumer = require("./consumer");
 

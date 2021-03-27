@@ -1,5 +1,5 @@
 const { Client } = require("pg");
-const schema = require("./schema.partitions");
+const schema = require("../src/schema.partitions");
 
 const maxPartitions = process.env.MAX_PARTITIONS || 1;
 const batchSerial = process.env.BATCH_SERIAL || 10;
@@ -9,12 +9,6 @@ const boot = async () => {
   console.log("Connecting...");
   const client = new Client({ connectionString: process.env.PGSTRING });
   await client.connect();
-
-  try {
-    await schema.create(client);
-  } catch (err) {
-    console.error(`Errors while upserting the schema: ${err.message}`);
-  }
 
   for (let i = 0; i < batchSerial; i++) {
     console.log(`Runing batch ${i + 1}/${batchSerial}...`);

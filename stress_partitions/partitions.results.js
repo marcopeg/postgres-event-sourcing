@@ -36,11 +36,18 @@ const boot = async () => {
     FROM "fq"."results";
   `);
 
-  const writeSpeed = input.rows[0].elapsed.milliseconds / input.rows[0].count;
+  const writeElapsed =
+    (input.rows[0].elapsed.seconds || 0) * 1000 +
+    input.rows[0].elapsed.milliseconds;
+
+  const readElapsed =
+    (results.rows[0].elapsed.seconds || 0) * 1000 +
+    results.rows[0].elapsed.milliseconds;
+
+  const writeSpeed = writeElapsed / input.rows[0].count;
   const writeThroughput = 1000 / writeSpeed;
 
-  const readSpeed =
-    results.rows[0].elapsed.milliseconds / results.rows[0].count;
+  const readSpeed = readElapsed / results.rows[0].count;
   const readThroughput = 1000 / readSpeed;
 
   console.log("");
@@ -68,13 +75,11 @@ const boot = async () => {
   console.log("");
   console.log("============== RESULTS =================");
   console.log("");
-  console.log(
-    `${input.rows[0].count} events were pushed in ${input.rows[0].elapsed.milliseconds}ms`
-  );
+  console.log(`${input.rows[0].count} events were pushed in ${writeElapsed}ms`);
   console.log(`> ${Math.round(writeThroughput)} events/s`);
   console.log("");
   console.log(
-    `${results.rows[0].count} events were processed in ${results.rows[0].elapsed.milliseconds}ms`
+    `${results.rows[0].count} events were processed in ${readElapsed}ms`
   );
   console.log(`> ${Math.round(readThroughput)} events/s`);
   console.log("");
@@ -113,9 +118,9 @@ const boot = async () => {
     process.env.CONSUMER2_REPLICAS,
     process.env.CONSUMER2_BATCH_PARALLEL,
     input.rows[0].count,
-    input.rows[0].elapsed.milliseconds,
+    writeElapsed,
     results.rows[0].count,
-    results.rows[0].elapsed.milliseconds,
+    readElapsed,
     writeConcurrencyFactor,
     writeSpeed,
     writeThroughput,

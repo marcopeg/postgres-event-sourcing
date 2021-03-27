@@ -212,6 +212,8 @@ module.exports = {
       FOR EACH ROW EXECUTE PROCEDURE "fq"."on_insert_on_partitions"();
     `);
 
+    // FUNCTION
+    // Retrieve a new message for processing
     await client.query(`
       CREATE OR REPLACE FUNCTION "fq"."get"(
         PAR_client VARCHAR,
@@ -265,6 +267,40 @@ module.exports = {
       $fn$
       LANGUAGE plpgsql;
     `);
+
+    // FUNCTION:
+    // Commit a message after it's been processed
+    await client.query(`
+      CREATE OR REPLACE FUNCTION "fq"."commit"(
+        PAR_client VARCHAR,
+        PAR_topic VARCHAR,
+        PAR_partition VARCHAR,
+        PAR_offset BIGINT
+      )
+      RETURNS SETOF "fq"."locks"
+      AS $fn$
+      BEGIN
+
+        RETURN QUERY
+        UPDATE "fq"."locks"
+          SET "offset" = PAR_offset,
+              "locked_until" = NOW(),
+              "last_offset" = (
+                SELECT "t2"."offset" FROM "fq"."messages" AS "t2"
+                WHERE "t2"."topic" = PAR_topic
+                  AND "partition" = PAR_partition
+                ORDER BY "t2"."offset" DESC
+                LIMIT 1
+              )
+          WHERE "client" = PAR_client
+            AND "topic" = PAR_topic
+            AND "partition" = PAR_partition
+          RETURNING *;
+
+      END;
+      $fn$
+      LANGUAGE plpgsql;
+    `);
   },
   put: async (client, payload, topic = "*", partition = "*") => {
     const result = await client.query(`
@@ -303,37 +339,20 @@ module.exports = {
     const result = await client.query(registerSql);
     return parseClient(result.rows[0]);
   },
-  get: async (client, clientId = "*", topic = "*") => {
-    const result = await client.query(
-      `SELECT * FROM "fq"."get"('${clientId}', '${topic}')`
-    );
+  get: async (db, client = "*", topic = "*") => {
+    const getSql = `SELECT * FROM "fq"."get"('${client}', '${topic}')`;
 
+    const result = await db.query(getSql);
     if (!result.rowCount) return null;
 
     const message = parseMessage(result.rows[0]);
-
-    return {
-      ...message,
-      commit: async () => {
-        const result = await client.query(`
-          UPDATE "fq"."locks"
-          SET "offset" = ${message.offset},
-              "locked_until" = NOW(),
-              "last_offset" = (
-                SELECT "t2"."offset" FROM "fq"."messages" AS "t2"
-                WHERE "t2"."topic" = '${message.topic}'
-                  AND "partition" = '${message.partition}'
-                ORDER BY "t2"."offset" DESC
-                LIMIT 1
-              )
-          WHERE "client" = '${message.client}'
-            AND "topic" = '${message.topic}'
-            AND "partition" = '${message.partition}'
-          RETURNING *
-        `);
-
-        return parseLock(result.rows[0]);
-      },
+    const commit = async () => {
+      const { client, topic, partition, offset } = message;
+      const commitSql = `SELECT * FROM "fq"."commit"('${client}', '${topic}', '${partition}', ${offset})`;
+      const result = await db.query(commitSql);
+      return parseLock(result.rows[0]);
     };
+
+    return { ...message, commit };
   },
 };

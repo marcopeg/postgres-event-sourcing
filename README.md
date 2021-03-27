@@ -29,10 +29,13 @@ The results of each round will be appended into `.docker-data/stats` for the spe
 Please refer to the `docker-compose.stress.yml` definition to checkout the stress test setup and see the available configuration options.
 
 ```bash
+# First Setup
+# (installs NPM dependencies into the container)
+make stress-setup on=xxx
+
 # Single shot
 # (customize the test settings in `.env`)
-make stress-partitions
-make stress-subscriptions
+make stress-run on=xxx
 
 # Out of a CSV
 # (customize the test settings in the relative `.csv` file)

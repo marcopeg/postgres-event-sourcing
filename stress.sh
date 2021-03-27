@@ -26,6 +26,6 @@ rm -rf .docker-data/stats/${1}.csv
     STRESS_CONSUMER1_BATCH_PARALLEL=$consumer1_batch_parallel \
     STRESS_CONSUMER2_REPLICAS=$consumer2_replicas \
     STRESS_CONSUMER2_BATCH_PARALLEL=$consumer2_batch_parallel \
-    make ${1}-run
+    make stress-run on=${1}
   done 
 } < stress_${1}/${1}.csv

@@ -32,7 +32,14 @@ const boot = async () => {
         );
         try {
           await client.query(`
-          INSERT INTO "fq"."results" VALUES (
+          INSERT INTO "fq"."results" (
+            "client",
+            "offset",
+            "topic",
+            "partition",
+            "payload",
+            "created_at"
+          ) VALUES (
             '${clientId}',
             ${result.offset},
             '${result.topic}',

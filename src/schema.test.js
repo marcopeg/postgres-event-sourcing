@@ -507,7 +507,7 @@ describe("Schema", () => {
       await schemaSubscriptions.put(client, { c: 1 }, "t2", "p1");
 
       // Should upsert the locks for "c1/t1"
-      await schemaSubscriptions.registerSubscription(client, "c1", "t1");
+      await schemaSubscriptions.subscribe(client, "c1", "t1");
 
       const r1 = await client.query(`
         SELECT * FROM "fq"."locks"
@@ -516,7 +516,7 @@ describe("Schema", () => {
       expect(r1.rowCount).toBe(2);
 
       // Should upsert the locks for "c1/t2"
-      await schemaSubscriptions.registerSubscription(client, "c1", "t2");
+      await schemaSubscriptions.subscribe(client, "c1", "t2");
 
       const r2 = await client.query(`
         SELECT * FROM "fq"."locks"
@@ -527,13 +527,13 @@ describe("Schema", () => {
 
     it("should be idempotent in registering clients and subscriptions", async () => {
       await Promise.all([
-        schemaSubscriptions.registerSubscription(client, "c1", "t1"),
-        schemaSubscriptions.registerSubscription(client, "c1", "t1"),
+        schemaSubscriptions.subscribe(client, "c1", "t1"),
+        schemaSubscriptions.subscribe(client, "c1", "t1"),
       ]);
     });
 
     it("should add the locks for active subscriptions after adding new messages", async () => {
-      await schemaSubscriptions.registerSubscription(client, "c1", "t1");
+      await schemaSubscriptions.subscribe(client, "c1", "t1");
       await schemaSubscriptions.put(client, { c: 1 }, "t1", "p1");
       await schemaSubscriptions.put(client, { c: 1 }, "t1", "p2");
 
@@ -547,7 +547,7 @@ describe("Schema", () => {
     it("should subscribe to an existing topic since the beginning of time", async () => {
       const m1 = await schemaSubscriptions.put(client, { c: 1 }, "t1", "p1");
 
-      await schemaSubscriptions.registerSubscription(client, "c1", "t1", true);
+      await schemaSubscriptions.subscribe(client, "c1", "t1", true);
 
       const r1 = await schemaSubscriptions.get(client, "c1", "t1");
       expect(m1.topic).toEqual(r1.topic);
@@ -558,7 +558,7 @@ describe("Schema", () => {
     it("should subscribe to an existing topic since the end of time", async () => {
       await schemaSubscriptions.put(client, { c: 1 }, "t1", "p1");
 
-      await schemaSubscriptions.registerSubscription(client, "c1", "t1");
+      await schemaSubscriptions.subscribe(client, "c1", "t1");
 
       const r1 = await schemaSubscriptions.get(client, "c1", "t1");
       expect(r1).toBe(null);
@@ -575,12 +575,7 @@ describe("Schema", () => {
       const m2 = await schemaSubscriptions.put(client, { c: 2 }, "t1", "p1");
       const m3 = await schemaSubscriptions.put(client, { c: 3 }, "t1", "p1");
 
-      await schemaSubscriptions.registerSubscription(
-        client,
-        "c1",
-        "t1",
-        m2.createdAt
-      );
+      await schemaSubscriptions.subscribe(client, "c1", "t1", m2.createdAt);
 
       const r1 = await schemaSubscriptions.get(client, "c1", "t1");
       expect(r1.topic).toEqual(m2.topic);
@@ -594,13 +589,13 @@ describe("Schema", () => {
       const m2 = await schemaSubscriptions.put(client, { c: 2 }, "t1", "p1");
       const m3 = await schemaSubscriptions.put(client, { c: 3 }, "t1", "p1");
 
-      await schemaSubscriptions.registerSubscription(client, "c1", "t1");
+      await schemaSubscriptions.subscribe(client, "c1", "t1");
 
       const r1 = await schemaSubscriptions.get(client, "c1", "t1");
       expect(r1).toBe(null);
 
       // Rewind the subscription to the beginning
-      await schemaSubscriptions.registerSubscription(client, "c1", "t1", true);
+      await schemaSubscriptions.subscribe(client, "c1", "t1", true);
       const r2 = await schemaSubscriptions.get(client, "c1", "t1");
       expect(r2.topic).toEqual(m1.topic);
       expect(r2.partition).toEqual(m1.partition);
@@ -608,7 +603,7 @@ describe("Schema", () => {
       expect(r2.payload.c).toEqual(m1.payload.c);
 
       // Just check that the cursor can move forward
-      await r2.commit();
+      await schemaSubscriptions.commit(client, r2);
       const r3 = await schemaSubscriptions.get(client, "c1", "t1");
       expect(r3.topic).toEqual(m2.topic);
       expect(r3.partition).toEqual(m2.partition);
@@ -616,7 +611,7 @@ describe("Schema", () => {
       expect(r3.payload.c).toEqual(m2.payload.c);
 
       // Just check that the cursor can move forward
-      await r3.commit();
+      await schemaSubscriptions.commit(client, r3);
       const r4 = await schemaSubscriptions.get(client, "c1", "t1");
       expect(r4.topic).toEqual(m3.topic);
       expect(r4.partition).toEqual(m3.partition);
@@ -624,17 +619,12 @@ describe("Schema", () => {
       expect(r4.payload.c).toEqual(m3.payload.c);
 
       // Just check that the cursor can move forward
-      await r4.commit();
+      await schemaSubscriptions.commit(client, r4);
       const r5 = await schemaSubscriptions.get(client, "c1", "t1");
       expect(r5).toBe(null);
 
       // Now rewind to a specific point in time
-      await schemaSubscriptions.registerSubscription(
-        client,
-        "c1",
-        "t1",
-        m2.createdAt
-      );
+      await schemaSubscriptions.subscribe(client, "c1", "t1", m2.createdAt);
       const r6 = await schemaSubscriptions.get(client, "c1", "t1");
       expect(r6.topic).toEqual(m2.topic);
       expect(r6.partition).toEqual(m2.partition);

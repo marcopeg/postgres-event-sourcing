@@ -29,6 +29,7 @@ module.exports = {
   create: async (client) => {
     await client.query('CREATE SCHEMA IF NOT EXISTS "fq";');
 
+    // SCHEMA: messages
     await client.query(`
       CREATE TABLE IF NOT EXISTS "fq"."messages" (
       "offset" BIGSERIAL,
@@ -40,6 +41,7 @@ module.exports = {
       );
     `);
 
+    // SCHEMA: partitions
     await client.query(`
       CREATE TABLE IF NOT EXISTS "fq"."partitions" (
       "topic" VARCHAR(50),
@@ -50,6 +52,7 @@ module.exports = {
       );
     `);
 
+    // SCHEMA: subscriptions
     await client.query(`
       CREATE TABLE IF NOT EXISTS "fq"."subscriptions" (
         "client" VARCHAR(32),
@@ -61,6 +64,7 @@ module.exports = {
       );
     `);
 
+    // SCHEMA: locks
     await client.query(`
       CREATE TABLE IF NOT EXISTS "fq"."locks" (
         "client" VARCHAR(32),
@@ -212,7 +216,7 @@ module.exports = {
       FOR EACH ROW EXECUTE PROCEDURE "fq"."on_insert_on_partitions"();
     `);
 
-    // FUNCTION
+    // FUNCTION: fq.get(client, topic)
     // Retrieve a new message for processing
     await client.query(`
       CREATE OR REPLACE FUNCTION "fq"."get"(
@@ -229,8 +233,6 @@ module.exports = {
         "locked_until" TIMESTAMP WITH TIME ZONE
       )
       AS $fn$
-      DECLARE
-        VAR_r RECORD;
       BEGIN
 
         RETURN QUERY
@@ -268,7 +270,7 @@ module.exports = {
       LANGUAGE plpgsql;
     `);
 
-    // FUNCTION:
+    // FUNCTION: fq.commit(client, topic, partition, offset)
     // Commit a message after it's been processed
     await client.query(`
       CREATE OR REPLACE FUNCTION "fq"."commit"(
@@ -301,42 +303,113 @@ module.exports = {
       $fn$
       LANGUAGE plpgsql;
     `);
-  },
-  put: async (client, payload, topic = "*", partition = "*") => {
-    const result = await client.query(`
-      INSERT INTO "fq"."messages"
-      ("topic", "partition", "payload") VALUES
-      ('${topic}', '${partition}', '${JSON.stringify(payload)}')
-      RETURNING *
+
+    // FUNCTION: fq.subscribe(client, topic, fromStart)
+    // subscribe to a topic from the two ends
+    // true -> from the beginning
+    // false -> from current time (default option)
+    await client.query(`
+      CREATE OR REPLACE FUNCTION "fq"."subscribe"(
+        PAR_client VARCHAR,
+        PAR_topic VARCHAR,
+        PAR_startAt BOOLEAN = false
+      )
+      RETURNS SETOF "fq"."subscriptions"
+      AS $fn$
+      DECLARE
+        VAR_r RECORD;
+      BEGIN
+
+        IF PAR_startAt = true THEN
+          SELECT "created_at" as "start_at" INTO VAR_r
+          FROM "fq"."messages"
+          WHERE "topic" = PAR_topic
+          ORDER BY "created_at" ASC
+          LIMIT 1;
+        ELSE
+          SELECT NOW()::timestamp with time zone AS start_at INTO VAR_r;
+        END IF;
+
+        RETURN QUERY
+        INSERT INTO "fq"."subscriptions"
+        ("client", "topic", "start_at") VALUES
+        (PAR_client, PAR_topic, VAR_r.start_at)
+        ON CONFLICT ON CONSTRAINT "subscriptions_pkey"
+        DO UPDATE SET "updated_at" = NOW(), "start_at" = EXCLUDED."start_at"
+        RETURNING *;
+
+      END;
+      $fn$
+      LANGUAGE plpgsql;
     `);
+
+    // FUNCTION: fq.subscribe(client, topic, startAt)
+    // subscribe to a topic from a specific point in time
+    await client.query(`
+      CREATE OR REPLACE FUNCTION "fq"."subscribeAt"(
+        PAR_client VARCHAR,
+        PAR_topic VARCHAR,
+        PAR_startAt TIMESTAMP WITH TIME ZONE
+      )
+      RETURNS SETOF "fq"."subscriptions"
+      AS $fn$
+      BEGIN
+
+        RETURN QUERY
+        INSERT INTO "fq"."subscriptions"
+        ("client", "topic", "start_at") VALUES 
+        (PAR_client, PAR_topic, PAR_startAt)
+        ON CONFLICT ON CONSTRAINT "subscriptions_pkey"
+        DO UPDATE SET "updated_at" = NOW(), "start_at" = EXCLUDED."start_at"
+        RETURNING *;
+
+      END;
+      $fn$
+      LANGUAGE plpgsql;
+    `);
+
+    // FUNCTION: fq.put(payload, topic, partition)
+    // subscribe to a topic from a specific point in time
+    await client.query(`
+      CREATE OR REPLACE FUNCTION "fq"."put"(
+        PAR_payload JSONB,
+        PAR_topic VARCHAR = '*',
+        PAR_partition VARCHAR = '*'
+      )
+      RETURNS SETOF "fq"."messages"
+      AS $fn$
+      BEGIN
+
+        RETURN QUERY
+        INSERT INTO "fq"."messages"
+        ("topic", "partition", "payload") VALUES
+        (PAR_topic, PAR_partition, PAR_payload)
+        RETURNING *;
+
+      END;
+      $fn$
+      LANGUAGE plpgsql;
+    `);
+  },
+  put: async (db, payload, topic = "*", partition = "*") => {
+    const payloadStr = JSON.stringify(payload);
+    const sql = `SELECT * FROM "fq"."put"('${payloadStr}', '${topic}', '${partition}')`;
+    const result = await db.query(sql);
     return parseMessage(result.rows[0]);
   },
-  registerSubscription: async (
-    client,
-    clientId = "*",
-    topic = "*",
-    fromStart = false
-  ) => {
-    let startAt = "";
+  subscribe: async (db, client = "*", topic = "*", fromStart = false) => {
+    let sql = "";
     switch (fromStart) {
       case true:
-        startAt = `'0001-01-01'`;
+        sql = `SELECT * FROM "fq"."subscribe"('${client}', '${topic}', true)`;
         break;
       case false:
-        startAt = "NOW()";
+        sql = `SELECT * FROM "fq"."subscribe"('${client}', '${topic}')`;
         break;
       default:
-        startAt = `'${fromStart.toISOString()}'`;
+        sql = `SELECT * FROM "fq"."subscribeAt"('${client}', '${topic}', '${fromStart.toISOString()}')`;
     }
-    const registerSql = `
-      INSERT INTO "fq"."subscriptions"
-      ("client", "topic", "start_at") VALUES 
-      ('${clientId}', '${topic}', ${startAt})
-      ON CONFLICT ON CONSTRAINT "subscriptions_pkey"
-      DO UPDATE SET "updated_at" = NOW(), "start_at" = EXCLUDED."start_at"
-      RETURNING *
-    `;
-    const result = await client.query(registerSql);
+    const result = await db.query(sql);
     return parseClient(result.rows[0]);
   },
   get: async (db, client = "*", topic = "*") => {
@@ -345,14 +418,12 @@ module.exports = {
     const result = await db.query(getSql);
     if (!result.rowCount) return null;
 
-    const message = parseMessage(result.rows[0]);
-    const commit = async () => {
-      const { client, topic, partition, offset } = message;
-      const commitSql = `SELECT * FROM "fq"."commit"('${client}', '${topic}', '${partition}', ${offset})`;
-      const result = await db.query(commitSql);
-      return parseLock(result.rows[0]);
-    };
-
-    return { ...message, commit };
+    return parseMessage(result.rows[0]);
+  },
+  commit: async (db, message) => {
+    const { client, topic, partition, offset } = message;
+    const commitSql = `SELECT * FROM "fq"."commit"('${client}', '${topic}', '${partition}', ${offset})`;
+    const result = await db.query(commitSql);
+    return parseLock(result.rows[0]);
   },
 };

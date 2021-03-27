@@ -82,9 +82,9 @@ const boot = async () => {
   if (!fs.existsSync("/stats/partitions.csv")) {
     const headers = [
       "producer_replicas",
-      "producer_max_partitions",
       "producer_batch_serial",
       "producer_batch_parallel",
+      "producer_max_partitions",
       "consumer1_replicas",
       "consumer1_batch_parallel",
       "consumer2_replicas",
@@ -105,9 +105,9 @@ const boot = async () => {
 
   const csv = [
     process.env.PRODUCER_REPLICAS,
-    process.env.PRODUCER_MAX_PARTITIONS,
     process.env.PRODUCER_BATCH_SERIAL,
     process.env.PRODUCER_BATCH_PARALLEL,
+    process.env.PRODUCER_MAX_PARTITIONS,
     process.env.CONSUMER1_REPLICAS,
     process.env.CONSUMER1_BATCH_PARALLEL,
     process.env.CONSUMER2_REPLICAS,

@@ -1,4 +1,5 @@
 const fs = require("fs");
+const prettyMilliseconds = require("pretty-ms");
 const { Client } = require("pg");
 const schema = require("../src/schema.partitions");
 
@@ -37,10 +38,14 @@ const boot = async () => {
   `);
 
   const writeElapsed =
+    (input.rows[0].elapsed.hours || 0) * 1000 * 60 * 60 +
+    (input.rows[0].elapsed.minutes || 0) * 1000 * 60 +
     (input.rows[0].elapsed.seconds || 0) * 1000 +
     input.rows[0].elapsed.milliseconds;
 
   const readElapsed =
+    (results.rows[0].elapsed.hours || 0) * 1000 * 60 * 60 +
+    (results.rows[0].elapsed.minutes || 0) * 1000 * 60 +
     (results.rows[0].elapsed.seconds || 0) * 1000 +
     results.rows[0].elapsed.milliseconds;
 
@@ -75,11 +80,17 @@ const boot = async () => {
   console.log("");
   console.log("============== RESULTS =================");
   console.log("");
-  console.log(`${input.rows[0].count} events were pushed in ${writeElapsed}ms`);
+  console.log(
+    `${input.rows[0].count} events were pushed in ${prettyMilliseconds(
+      writeElapsed
+    )}`
+  );
   console.log(`> ${Math.round(writeThroughput)} events/s`);
   console.log("");
   console.log(
-    `${results.rows[0].count} events were processed in ${readElapsed}ms`
+    `${results.rows[0].count} events were processed in ${prettyMilliseconds(
+      readElapsed
+    )}`
   );
   console.log(`> ${Math.round(readThroughput)} events/s`);
   console.log("");

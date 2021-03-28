@@ -1,9 +1,6 @@
 const { Client } = require("pg");
 const schema = require("../src/schema.partitions");
 
-const batchSerial = process.env.BATCH_SERIAL || 10;
-const batchParallel = process.env.BATCH_PARALLEL || 100;
-
 const boot = async () => {
   console.log("Connecting...");
   const client = new Client({ connectionString: process.env.PGSTRING });

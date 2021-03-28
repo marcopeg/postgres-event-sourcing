@@ -1,6 +1,5 @@
 const parseMessage = (msg) => ({
   offset: Number(msg.offset),
-  createdAt: new Date(msg.created_at),
   payload: msg.payload,
 });
 
@@ -13,7 +12,7 @@ module.exports = {
     await db.query(`
       CREATE TABLE IF NOT EXISTS "fq"."events" (
         "offset" BIGSERIAL,
-        "payload" JSONB DEFAULT '{}'
+        "payload" JSONB DEFAULT '{}',
         PRIMARY KEY ("offset")
       );
     `);
@@ -59,10 +58,12 @@ module.exports = {
       ...message,
       commit: async () => {
         const result = await db.query(`
-           INSERT INTO "fq"."clients"
+          INSERT INTO "fq"."clients"
           ("id", "offset")
           VALUES
           ('${client}', ${message.offset})
+          ON CONFLICT ON CONSTRAINT "clients_pkey"
+          DO UPDATE SET "offset" = EXCLUDED."offset"
           RETURNING *
         `);
         return result.rows

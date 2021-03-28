@@ -14,6 +14,7 @@ const boot = async () => {
 
   let iterations = 0;
   let keepWorking = true;
+
   while (keepWorking) {
     // Get parallel messages
     const messages = [];

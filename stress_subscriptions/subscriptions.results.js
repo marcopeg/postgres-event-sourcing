@@ -1,6 +1,6 @@
 const fs = require("fs");
+const prettyMilliseconds = require("pretty-ms");
 const { Client } = require("pg");
-const schema = require("../src/schema.subscriptions");
 
 const boot = async () => {
   console.log("Connecting...");
@@ -36,11 +36,22 @@ const boot = async () => {
     FROM "fq"."results";
   `);
 
-  const writeSpeed = input.rows[0].elapsed.milliseconds / input.rows[0].count;
+  const writeElapsed =
+    (input.rows[0].elapsed.hours || 0) * 1000 * 60 * 60 +
+    (input.rows[0].elapsed.minutes || 0) * 1000 * 60 +
+    (input.rows[0].elapsed.seconds || 0) * 1000 +
+    input.rows[0].elapsed.milliseconds;
+
+  const readElapsed =
+    (results.rows[0].elapsed.hours || 0) * 1000 * 60 * 60 +
+    (results.rows[0].elapsed.minutes || 0) * 1000 * 60 +
+    (results.rows[0].elapsed.seconds || 0) * 1000 +
+    results.rows[0].elapsed.milliseconds;
+
+  const writeSpeed = writeElapsed / input.rows[0].count;
   const writeThroughput = 1000 / writeSpeed;
 
-  const readSpeed =
-    results.rows[0].elapsed.milliseconds / results.rows[0].count;
+  const readSpeed = readElapsed / results.rows[0].count;
   const readThroughput = 1000 / readSpeed;
 
   console.log("");
@@ -69,12 +80,16 @@ const boot = async () => {
   console.log("============== RESULTS =================");
   console.log("");
   console.log(
-    `${input.rows[0].count} events were pushed in ${input.rows[0].elapsed.milliseconds}ms`
+    `${input.rows[0].count} events were pushed in ${prettyMilliseconds(
+      writeElapsed
+    )}`
   );
   console.log(`> ${Math.round(writeThroughput)} events/s`);
   console.log("");
   console.log(
-    `${results.rows[0].count} events were processed in ${results.rows[0].elapsed.milliseconds}ms`
+    `${results.rows[0].count} events were processed in ${prettyMilliseconds(
+      readElapsed
+    )}`
   );
   console.log(`> ${Math.round(readThroughput)} events/s`);
   console.log("");
@@ -113,9 +128,9 @@ const boot = async () => {
     process.env.CONSUMER2_REPLICAS,
     process.env.CONSUMER2_BATCH_PARALLEL,
     input.rows[0].count,
-    input.rows[0].elapsed.milliseconds,
+    writeElapsed,
     results.rows[0].count,
-    results.rows[0].elapsed.milliseconds,
+    readElapsed,
     writeConcurrencyFactor,
     writeSpeed,
     writeThroughput,

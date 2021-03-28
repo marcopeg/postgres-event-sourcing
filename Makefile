@@ -1,8 +1,8 @@
 on?="partitions"
 
 stress-cleanup:
-	TARGET=${on} docker-compose -f docker-compose.stress.yml stop postgres
-	TARGET=${on} docker-compose -f docker-compose.stress.yml rm -f postgres
+	# TARGET=${on} docker-compose -f docker-compose.stress.yml stop postgres
+	# TARGET=${on} docker-compose -f docker-compose.stress.yml rm -f postgres
 
 stress-setup:
 	TARGET=${on} docker-compose -f docker-compose.stress.yml up setup

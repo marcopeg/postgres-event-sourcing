@@ -139,6 +139,96 @@ const boot = async () => {
     readThroughput,
   ].join(",");
   fs.appendFileSync("/stats/subscriptions.csv", `${csv}\n`);
+
+  // INTEGRITY CHECK
+  // It checks that the expected results for both clients exists for each
+  // message that was posted into the queue
+  console.log("");
+  console.log("========= EVENTS INTEGRITY CHECK =======");
+  let offset = 0;
+  let keepGoing = true;
+  while (keepGoing) {
+    const res0 = await db.query(`
+      SELECT "topic", "partition", "offset"
+      FROM "fq"."events"
+      WHERE "offset" > ${offset}
+      ORDER BY "offset" ASC
+      LIMIT 1;
+    `);
+
+    // Stop the cursor once we're done with the
+    if (!res0.rowCount) {
+      keepGoing = false;
+      continue;
+    }
+
+    // Check that each message is progressive by 1 unit.
+    if (Number(res0.rows[0].offset) - offset !== 1) {
+      throw new Error(
+        `Missed INSERT integrity at offset: ${res0.rows[0].offset}`
+      );
+    }
+
+    // Check that for each message there are at exactly 2
+    // recorded results, one per client.
+    const res1 = await db.query(`
+      SELECT COUNT(*) 
+      FROM "fq"."results"
+      WHERE "topic" = '${res0.rows[0].topic}'
+      AND "partition" = '${res0.rows[0].partition}'
+      AND "offset" = '${res0.rows[0].offset}'
+    `);
+    if (Number(res1.rows[0].count) !== 2) {
+      throw new Error("Wrong sum");
+    }
+
+    offset = Number(res0.rows[0].offset);
+  }
+  console.log("> ok");
+  console.log("");
+
+  console.log("");
+  console.log("====== PARTITIONS INTEGRITY CHECK ======");
+  const partitions = await db.query(`SELECT * FROM "fq"."locks"`);
+  let totChecks = 0;
+  for (partition of partitions.rows) {
+    // console.log(partition);
+    let offset = 0;
+    let keepGoing = true;
+    let partitionChecks = 0;
+    while (keepGoing) {
+      const res0 = await db.query(`
+        SELECT * FROM "fq"."results"
+        WHERE "client" = '${partition.client}'
+          AND "topic" = '${partition.topic}'
+          AND "partition" = '${partition.partition}'
+          AND "offset" > ${offset}
+        ORDER BY "offset" ASC
+        LIMIT 1;
+      `);
+
+      if (!res0.rowCount) {
+        keepGoing = false;
+        break;
+      }
+
+      if (Number(res0.rows[0].offset) <= offset) {
+        throw new Error("Offset inconsistent");
+      }
+      offset = Number(res0.rows[0].offset);
+      totChecks += 1;
+      partitionChecks += 1;
+    }
+    console.log(
+      `> ${partition.client}/${partition.topic}/${partition.partition} ... ok (${partitionChecks})`
+    );
+  }
+
+  const totDocs = await db.query(`SELECT COUNT(*) FROM "fq"."results"`);
+  if (totChecks !== Number(totDocs.rows[0].count)) {
+    throw new Error("Inconsisten partition result count");
+  }
+  console.log(`(Total partition checks count: ${totChecks})`);
 };
 
 boot()

@@ -22,6 +22,6 @@ stress-run-consumer:
 
 stress-run-results:
 	TARGET=${on} docker-compose -f docker-compose.stress.yml up results
-	TARGET=${on} docker-compose -f docker-compose.stress.yml rm -f results
+	#TARGET=${on} docker-compose -f docker-compose.stress.yml rm -f results
 
 stress-run: stress-reset stress-run-producer stress-run-consumer stress-run-results stress-cleanup

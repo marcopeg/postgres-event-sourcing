@@ -26,7 +26,7 @@ const boot = async () => {
         __lastResult.partition
       }:${__lastResult.offset}`
     );
-  }, 1000);
+  }, 5000);
 
   while (keepWorking) {
     // Get parallel messages

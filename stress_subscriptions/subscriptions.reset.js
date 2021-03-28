@@ -27,7 +27,29 @@ const boot = async () => {
       "payload" JSONB DEFAULT '{}',
       "created_at" TIMESTAMP DEFAULT NOW() NOT NULL,
       "processed_at" TIMESTAMP DEFAULT NOW() NOT NULL,
-      PRIMARY KEY ("client", "topic", "offset")
+      PRIMARY KEY ("client", "topic", "offset", "partition")
+      );
+    `);
+  } catch (err) {
+    console.error("Error while creating the results table", err.message);
+  }
+
+  // Errors table
+  try {
+    await client.query(`
+      DROP TABLE IF EXISTS "fq"."errors";
+    `);
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS "fq"."errors" (
+      "id" BIGSERIAL,
+      "client" VARCHAR(32),
+      "offset" BIGINT,
+      "topic" VARCHAR(50),
+      "partition" VARCHAR(50),
+      "payload" JSONB DEFAULT '{}',
+      "created_at" TIMESTAMP DEFAULT NOW() NOT NULL,
+      "processed_at" TIMESTAMP DEFAULT NOW() NOT NULL,
+      PRIMARY KEY ("id")
       );
     `);
   } catch (err) {

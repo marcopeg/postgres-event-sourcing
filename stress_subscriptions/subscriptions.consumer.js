@@ -12,7 +12,6 @@ const boot = async () => {
   console.log(`[${clientId}] Subscribing and awaiting 3s to start...`);
   await schema.subscribe(client, clientId, `*`, true);
   await new Promise((r) => setTimeout(r, 3000));
-  // console.log(clientId, clientResult);
 
   console.log(`[${clientId}] Start working on it!`);
   let iterations = 0;
@@ -36,17 +35,18 @@ const boot = async () => {
     }
 
     // Committing the messages
-    const results = await Promise.all(messages);
-    for (const result of results) {
-      if (result) {
-        __lastResult = result;
-        // console.log(
-        //   `[consumer][${clientId}][iteration:${iterations + 1}] ${
-        //     result.partition
-        //   }:${result.offset}`
-        // );
-        try {
-          await client.query(`
+    try {
+      const results = await Promise.all(messages);
+      for (const result of results) {
+        if (result) {
+          __lastResult = result;
+          // console.log(
+          //   `[consumer][${clientId}][iteration:${iterations + 1}] ${
+          //     result.partition
+          //   }:${result.offset}`
+          // );
+          try {
+            await client.query(`
           INSERT INTO "fq"."results" (
             "client",
             "offset",
@@ -63,24 +63,27 @@ const boot = async () => {
             '${result.createdAt.toISOString()}'
           )
         `);
-        } catch (err) {
-          console.log(err.message);
-          console.log(
-            clientId,
-            result.client,
-            "--",
-            result.topic,
-            result.partition,
-            result.offset
-          );
+          } catch (err) {
+            console.log(err.message);
+            console.log(
+              clientId,
+              result.client,
+              "--",
+              result.topic,
+              result.partition,
+              result.offset
+            );
+          }
+          await schema.commit(client, result);
+          // await new Promise((r) => setTimeout(r, 1000));
         }
-        await schema.commit(client, result);
-        // await new Promise((r) => setTimeout(r, 1000));
       }
-    }
 
-    // At least one non-null item to keep working
-    keepWorking = results.find((item) => item !== null);
+      // At least one non-null item to keep working
+      keepWorking = results.find((item) => item !== null);
+    } catch (err) {
+      console.log("LOOP ERROR", err.message);
+    }
     iterations += 1;
   }
 

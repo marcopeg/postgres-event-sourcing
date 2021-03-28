@@ -20,6 +20,7 @@ const boot = async () => {
     `);
     await client.query(`
       CREATE TABLE IF NOT EXISTS "fq"."results" (
+      "id" BIGSERIAL,
       "client" VARCHAR(32),
       "offset" BIGINT,
       "topic" VARCHAR(50),
@@ -27,7 +28,7 @@ const boot = async () => {
       "payload" JSONB DEFAULT '{}',
       "created_at" TIMESTAMP DEFAULT NOW() NOT NULL,
       "processed_at" TIMESTAMP DEFAULT NOW() NOT NULL,
-      PRIMARY KEY ("client", "topic", "offset", "partition")
+      PRIMARY KEY ("id")
       );
     `);
   } catch (err) {

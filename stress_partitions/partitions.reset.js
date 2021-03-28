@@ -27,7 +27,7 @@ const boot = async () => {
       "payload" JSONB DEFAULT '{}',
       "created_at" TIMESTAMP DEFAULT NOW() NOT NULL,
       "processed_at" TIMESTAMP DEFAULT NOW() NOT NULL,
-      PRIMARY KEY ("client", "offset")
+      PRIMARY KEY ("client", "offset", "topic","partition")
       );
     `);
   } catch (err) {

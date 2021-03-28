@@ -9,8 +9,9 @@ const boot = async () => {
   const client = new Client({ connectionString: process.env.PGSTRING });
   await client.connect();
 
+  console.log(`[${clientId}] Subscribing and awaiting 3s to start...`);
   await schema.registerClient(client, clientId, true);
-  // console.log(clientId, clientResult);
+  await new Promise((r) => setTimeout(r, 3000));
 
   let iterations = 0;
   let keepWorking = true;

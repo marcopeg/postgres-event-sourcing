@@ -179,7 +179,10 @@ const boot = async () => {
       AND "offset" = '${res0.rows[0].offset}'
     `);
     if (Number(res1.rows[0].count) !== 2) {
-      throw new Error("Wrong sum");
+      console.log(res0.rows[0]);
+      throw new Error(
+        `Wrong sum: offset=${offset} total=${res1.rows[0].count}`
+      );
     }
 
     offset = Number(res0.rows[0].offset);
